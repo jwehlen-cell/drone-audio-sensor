@@ -1,0 +1,49 @@
+# Cloud Build config for the YAMNet inference worker.
+# The base image is heavy (TF + TF Hub) so the first build can take
+# 10-15 min; subsequent builds reuse the cached layer.
+substitutions:
+  _SERVICE:     drone-sensor-dev-inference
+  _REGION:      us-central1
+  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _TAG:         latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/inference/Dockerfile
+      - -t
+      - ${_REPO}/inference:${_TAG}
+      - -t
+      - ${_REPO}/inference:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/inference
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REPO}/inference:${_TAG}
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REPO}/inference:${_TAG}
+  - ${_REPO}/inference:latest
+
+timeout: 1800s

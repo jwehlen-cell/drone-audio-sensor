@@ -31,27 +31,40 @@ terraform apply
 
 The first apply takes ~10 minutes (Memorystore + VPC peering are slow). The Cloud Run service will come up using a placeholder image (`hello`) since you have not pushed `gateway` yet — its `image` field is on `ignore_changes`, so subsequent applies won't fight your `gcloud run deploy`.
 
-## Push the gateway image
+## Build + deploy the service images
 
-From the repo root, after Terraform has created the Artifact Registry repo:
+The Cloud Run resources in this Terraform config are deployed against
+the `cloudrun/container/hello` placeholder image — Terraform stops
+caring about the image once the resource is created (`ignore_changes`
+on `template[0].containers[0].image`). To roll real code use the
+top-level Makefile, which drives Cloud Build inside GCP:
 
-```
-PROJECT_ID=$(terraform -chdir=iac/terraform output -raw artifact_registry_repo | cut -d/ -f3)
-REPO_URL=$(terraform -chdir=iac/terraform output -raw artifact_registry_repo)
-REGION=$(terraform -chdir=iac/terraform output -raw gateway_url | awk -F. '{print $2}')
-
-gcloud auth configure-docker ${REGION}-docker.pkg.dev
-
-docker build -f backend/gateway/Dockerfile -t ${REPO_URL}/gateway:0.1.0 .
-docker push ${REPO_URL}/gateway:0.1.0
-
-gcloud run deploy $(terraform -chdir=iac/terraform output -raw gateway_url | sed 's|https://||' | cut -d- -f1-3) \
-  --image=${REPO_URL}/gateway:0.1.0 \
-  --region=${REGION} \
-  --project=${PROJECT_ID}
+```bash
+# From the repo root
+make deploy-admin
+make deploy-gateway
+make deploy-inference
+make deploy-tak-publisher
+# or all four in sequence
+make deploy-all
 ```
 
-(Or simpler: `gcloud run deploy <service-name> --source=. --region=...` and let Cloud Build do it.)
+Each target uploads the repo tarball to Cloud Build, builds the image
+in GCP using the matching `cloudbuild/<service>.yaml`, pushes it to
+Artifact Registry, and rolls the Cloud Run service to the new tag.
+**Nothing builds on the developer machine.**
+
+The Cloud Build IAM bindings (`roles/run.admin`, `roles/artifactregistry.writer`,
+`roles/iam.serviceAccountUser` on each runtime SA) are provisioned by
+`cloudbuild.tf`, so they're in place after `terraform apply`.
+
+### Going further: auto-deploy on git push
+
+A `google_cloudbuild_trigger` resource can watch your GitHub repo and
+fire the same `cloudbuild/*.yaml` configs on every push to `main`.
+That requires a one-time GitHub-repo connection in the Cloud Console
+(no API for it). The Makefile path stays useful afterwards for ad-hoc
+deploys from feature branches.
 
 ## Pointing the phone at this gateway
 

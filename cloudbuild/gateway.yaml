@@ -1,0 +1,44 @@
+# Cloud Build config for the gRPC gateway.
+substitutions:
+  _SERVICE:     drone-sensor-dev-gateway
+  _REGION:      us-central1
+  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _TAG:         latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/gateway/Dockerfile
+      - -t
+      - ${_REPO}/gateway:${_TAG}
+      - -t
+      - ${_REPO}/gateway:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/gateway
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REPO}/gateway:${_TAG}
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REPO}/gateway:${_TAG}
+  - ${_REPO}/gateway:latest

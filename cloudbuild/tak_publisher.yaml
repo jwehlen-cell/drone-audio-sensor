@@ -1,0 +1,44 @@
+# Cloud Build config for the TAK publisher.
+substitutions:
+  _SERVICE:     drone-sensor-dev-tak-publisher
+  _REGION:      us-central1
+  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _TAG:         latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/tak_publisher/Dockerfile
+      - -t
+      - ${_REPO}/tak-publisher:${_TAG}
+      - -t
+      - ${_REPO}/tak-publisher:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/tak-publisher
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REPO}/tak-publisher:${_TAG}
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REPO}/tak-publisher:${_TAG}
+  - ${_REPO}/tak-publisher:latest

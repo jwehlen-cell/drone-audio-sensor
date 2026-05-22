@@ -1,0 +1,49 @@
+# Cloud Build config for the admin web UI.
+#
+# Invoked from the repo root via `make deploy-admin` (see top-level Makefile).
+# All image work happens in Cloud Build — nothing builds on the developer
+# machine. The Cloud Run service is deployed against ignore_changes(image),
+# so this gcloud run deploy step is what actually rolls a new revision.
+substitutions:
+  _SERVICE:     drone-sensor-dev-admin
+  _REGION:      us-central1
+  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _TAG:         latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/admin/Dockerfile
+      - -t
+      - ${_REPO}/admin:${_TAG}
+      - -t
+      - ${_REPO}/admin:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/admin
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REPO}/admin:${_TAG}
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REPO}/admin:${_TAG}
+  - ${_REPO}/admin:latest
