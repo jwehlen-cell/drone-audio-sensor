@@ -15,6 +15,50 @@ scripts/                Admin tooling (provision_device.py)
 docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY)
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Phones["Android sensor phones"]
+        P1["Phone 1\nAudioCaptureService"]
+        P2["Phone 2\nAudioCaptureService"]
+        PN["Phone N\nAudioCaptureService"]
+    end
+
+    subgraph GCP["Google Cloud Platform"]
+        LB["Cloud Run ingress\npublic h2c gRPC"]
+        GW["Gateway Cloud Run service\nshared container pool\nbidi gRPC streams"]
+        FS["Firestore\ndevice registry, public keys,\nlatest location"]
+        R["Memorystore Redis\nhot device state + audio_frames stream"]
+        INF["Inference Cloud Run service\nYAMNet worker pool\nRedis consumer group"]
+        PS["Pub/Sub detections topic"]
+        TAKPUB["TAK publisher Cloud Run service\nPub/Sub subscriber + CoT writer"]
+        SM["Secret Manager\nTAK TLS credentials"]
+    end
+
+    TAK["TAK Server / clients"]
+
+    P1 --> LB
+    P2 --> LB
+    PN --> LB
+    LB --> GW
+    GW <--> FS
+    GW --> R
+    INF --> R
+    R --> INF
+    INF --> FS
+    INF --> PS
+    PS --> TAKPUB
+    SM --> TAKPUB
+    TAKPUB --> TAK
+```
+
+Each phone keeps one long-lived gRPC stream open to the gateway, but Cloud Run
+container instances are shared pools, not one container per phone. The gateway
+multiplexes many phone streams, writes audio frames to the Redis stream, and
+inference workers split that stream through a Redis consumer group. Only
+confirmed detection events move through Pub/Sub to the TAK publisher.
+
 ## Session 1 — Phone-side streaming core
 
 Delivered:
