@@ -5,14 +5,13 @@ Android + Google Cloud system for continuous drone audio detection using YAMNet,
 ## Repository layout
 
 ```
-proto/              Shared gRPC/protobuf contract (Android, backend, TAK publisher)
-android/            Dedicated-device sensor app
-backend/gateway/    Python asyncio gRPC gateway service
-backend/inference/  YAMNet inference worker pool
-iac/terraform/      GCP infrastructure as code
+proto/                  Shared gRPC/protobuf contract (Android, backend, TAK publisher)
+android/                Dedicated-device sensor app
+backend/gateway/        Python asyncio gRPC gateway service
+backend/inference/      YAMNet inference worker pool
+backend/tak_publisher/  Pub/Sub -> CoT/TAK Server bridge
+iac/terraform/          GCP infrastructure as code
 ```
-
-Future sessions will add `backend/tak_publisher/`.
 
 ## Session 1 — Phone-side streaming core
 
@@ -62,10 +61,24 @@ Delivered:
 - Detection event JSON includes device location (looked up from Firestore), per-class scores, and model identification
 - Cloud Run service for inference workers with HTTP/2 health probes, VPC egress to Memorystore, internal-only ingress
 
+## Session 4 — TAK publisher + Android hardening
+
+Delivered:
+
+- `backend/tak_publisher/` — Pub/Sub pull subscriber bridges into asyncio, dedupes by `detection_id` (LRU), converts each event to a Cursor-on-Target XML payload, and writes to a persistent TLS socket to the TAK Server
+- Reconnect with exponential backoff + jitter; ack only after the TAK write succeeds (so failed writes redeliver via Pub/Sub → DLQ)
+- TAK Server credentials loaded from Secret Manager (PEM blobs) at startup
+- Pub/Sub subscription on the detections topic with DLQ and configurable max-delivery-attempts
+- New Cloud Run service for the TAK publisher with health probes and Secret Manager IAM binding
+- Android: `LocationProvider` (LocationManager-based, no Play Services dep), `AudioWatchdog` (auto-restarts capture on stall), `HealthReporter` (periodic DeviceHealth heartbeats)
+- `StreamingClient` now accepts a `LocationProvider`, includes location in the handshake, and forwards `LocationUpdate` + periodic `DeviceHealth` messages over the bidi stream
+- Manifest: ACCESS_FINE/COARSE/BACKGROUND_LOCATION + FOREGROUND_SERVICE_LOCATION; service `foregroundServiceType="microphone|location"`
+- MainActivity now also requests `ACCESS_FINE_LOCATION`
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
 2. ✅ Cloud gateway + Terraform skeleton
 3. ✅ YAMNet inference worker
-4. TAK/CoT publisher + Android hardening
+4. ✅ TAK/CoT publisher + Android hardening
 5. Security, kiosk mode, ops, docs

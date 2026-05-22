@@ -18,6 +18,8 @@ import androidx.core.content.ContextCompat
 import com.dronesensor.app.MainActivity
 import com.dronesensor.app.R
 import com.dronesensor.app.config.AppConfig
+import com.dronesensor.app.health.HealthReporter
+import com.dronesensor.app.location.LocationProvider
 import com.dronesensor.app.stream.StreamMetrics
 import com.dronesensor.app.stream.StreamState
 import com.dronesensor.app.stream.StreamingClient
@@ -29,6 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 class AudioCaptureService : Service() {
@@ -36,8 +40,12 @@ class AudioCaptureService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var producer: AudioFrameProducer? = null
     private var client: StreamingClient? = null
+    private var locationProvider: LocationProvider? = null
+    private var watchdog: AudioWatchdog? = null
+    private var healthReporter: HealthReporter? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var observerJob: Job? = null
+    private var locationObserverJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -51,18 +59,28 @@ class AudioCaptureService : Service() {
 
         if (producer == null) {
             val config = AppConfig.get(this)
+            val loc = LocationProvider(this)
             val p = AudioFrameProducer(
                 context = this,
                 sampleRateHz = config.sampleRateHz,
                 frameDurationMs = config.frameDurationMs,
                 queueCapacity = config.maxLocalQueueFrames
             )
-            val c = StreamingClient(this, p)
+            val c = StreamingClient(this, p, loc)
+            val wd = AudioWatchdog(p)
+            val hr = HealthReporter(this, p, c, wd)
+
             producer = p
             client = c
+            locationProvider = loc
+            watchdog = wd
+            healthReporter = hr
 
+            loc.start()
             p.start()
             c.start()
+            wd.start()
+            hr.start()
 
             observerJob = scope.launch {
                 combine(c.state, c.metrics) { state, metrics ->
@@ -71,6 +89,13 @@ class AudioCaptureService : Service() {
                     ServiceStatus.update(state, metrics)
                 }
             }
+
+            locationObserverJob = scope.launch {
+                loc.state
+                    .filterNotNull()
+                    .drop(1)
+                    .collect { c.submitLocationUpdate(it) }
+            }
         }
 
         return START_STICKY
@@ -78,10 +103,17 @@ class AudioCaptureService : Service() {
 
     override fun onDestroy() {
         observerJob?.cancel()
+        locationObserverJob?.cancel()
+        healthReporter?.stop()
+        watchdog?.stop()
         client?.stop()
         producer?.stop()
+        locationProvider?.stop()
+        healthReporter = null
+        watchdog = null
         producer = null
         client = null
+        locationProvider = null
         releaseWakeLock()
         ServiceStatus.setRunning(false)
         super.onDestroy()
@@ -92,16 +124,23 @@ class AudioCaptureService : Service() {
     private fun startInForeground() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIF_ID,
-                notification,
+            val type = if (hasLocationPermission()) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
+            }
+            ServiceCompat.startForeground(this, NOTIF_ID, notification, type)
         } else {
             startForeground(NOTIF_ID, notification)
         }
     }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
 
     private fun buildNotification(): Notification {
         val openIntent = PendingIntent.getActivity(

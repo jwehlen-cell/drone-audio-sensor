@@ -22,6 +22,13 @@ inference_memory                     = "4Gi"
 inference_detection_threshold        = 0.5
 inference_suppression_window_seconds = 60
 
+# TAK publisher
+tak_publisher_image         = ""
+tak_publisher_min_instances = 1
+tak_publisher_max_instances = 2
+cot_event_type              = "a-u-A"
+cot_stale_seconds           = 180
+
 # BASIC tier is single-node, no HA — fine for R&D, swap to STANDARD_HA for prod.
 redis_tier      = "BASIC"
 redis_memory_gb = 1

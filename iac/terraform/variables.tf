@@ -110,6 +110,42 @@ variable "inference_suppression_window_seconds" {
   default     = 60
 }
 
+variable "tak_publisher_image" {
+  description = "Container image for the TAK publisher (e.g. <region>-docker.pkg.dev/<project>/<repo>/tak-publisher:<tag>)."
+  type        = string
+  default     = ""
+}
+
+variable "tak_publisher_min_instances" {
+  description = "Cloud Run min instance count for the TAK publisher (keep > 0 so the Pub/Sub subscriber + TLS socket stay alive)."
+  type        = number
+  default     = 1
+}
+
+variable "tak_publisher_max_instances" {
+  description = "Cloud Run max instance count for the TAK publisher."
+  type        = number
+  default     = 2
+}
+
+variable "cot_event_type" {
+  description = "CoT event type written to TAK."
+  type        = string
+  default     = "a-u-A"
+}
+
+variable "cot_stale_seconds" {
+  description = "How long a CoT marker should remain on TAK clients before going stale."
+  type        = number
+  default     = 180
+}
+
+variable "subscription_max_delivery_attempts" {
+  description = "Number of times Pub/Sub will retry delivery before sending to DLQ."
+  type        = number
+  default     = 5
+}
+
 variable "redis_tier" {
   description = "Memorystore tier (BASIC for R&D, STANDARD_HA for production)."
   type        = string

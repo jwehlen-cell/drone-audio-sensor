@@ -33,6 +33,21 @@ output "inference_service_name" {
   value       = google_cloud_run_v2_service.inference.name
 }
 
+output "tak_publisher_service_name" {
+  description = "Cloud Run service name for the TAK publisher."
+  value       = google_cloud_run_v2_service.tak_publisher.name
+}
+
+output "tak_publisher_subscription" {
+  description = "Pub/Sub subscription consumed by the TAK publisher."
+  value       = google_pubsub_subscription.tak_publisher.id
+}
+
+output "tak_credentials_secret" {
+  description = "Secret Manager secret holding TAK Server credentials."
+  value       = google_secret_manager_secret.tak_server_credentials.id
+}
+
 output "device_secret_name" {
   description = "Secret Manager secret holding device-bootstrap material (placeholder for Session 5)."
   value       = google_secret_manager_secret.device_bootstrap.id

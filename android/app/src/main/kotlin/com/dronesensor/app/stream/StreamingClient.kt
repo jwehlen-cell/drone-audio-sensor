@@ -9,10 +9,15 @@ import com.dronesensor.app.audio.CapturedFrame
 import com.dronesensor.app.config.AppConfig
 import com.dronesensor.app.health.DeviceHealthSnapshot
 import com.dronesensor.app.identity.DeviceIdentity
+import com.dronesensor.app.location.LocationProvider
 import com.dronesensor.proto.AudioFrame
 import com.dronesensor.proto.ClientStreamMessage
 import com.dronesensor.proto.ConnectHandshake
+import com.dronesensor.proto.DeviceHealth
+import com.dronesensor.proto.DeviceLocation
 import com.dronesensor.proto.DroneAudioStreamGrpcKt
+import com.dronesensor.proto.LocationStatus
+import com.dronesensor.proto.LocationUpdate
 import com.dronesensor.proto.ServerCommand
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannel
@@ -46,7 +51,8 @@ data class StreamMetrics(
 
 class StreamingClient(
     private val context: Context,
-    private val producer: AudioFrameProducer
+    private val producer: AudioFrameProducer,
+    private val locationProvider: LocationProvider? = null
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -59,6 +65,11 @@ class StreamingClient(
     private val _metrics = MutableStateFlow(StreamMetrics())
     val metrics: StateFlow<StreamMetrics> = _metrics.asStateFlow()
 
+    private val outboundExtras = Channel<ClientStreamMessage>(
+        capacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
     fun start() {
         if (runJob?.isActive == true) return
         runJob = scope.launch { runLoop() }
@@ -68,6 +79,24 @@ class StreamingClient(
         runJob?.cancel()
         runJob = null
         _state.value = StreamState.IDLE
+    }
+
+    fun submitHealth(health: DeviceHealth) {
+        outboundExtras.trySend(
+            ClientStreamMessage.newBuilder().setHealth(health).build()
+        )
+    }
+
+    fun submitLocationUpdate(location: DeviceLocation) {
+        if (location.status == LocationStatus.LOCATION_STATUS_UNAVAILABLE) return
+        val update = LocationUpdate.newBuilder()
+            .setDeviceId(DeviceIdentity.get(context).deviceId)
+            .setUpdateTimestampMs(System.currentTimeMillis())
+            .setLocation(location)
+            .build()
+        outboundExtras.trySend(
+            ClientStreamMessage.newBuilder().setLocationUpdate(update).build()
+        )
     }
 
     private suspend fun runLoop() {
@@ -110,7 +139,7 @@ class StreamingClient(
         val handshake = buildHandshake()
         outbound.trySend(handshake)
 
-        val forwarder = scope.launch {
+        val frameForwarder = scope.launch {
             producer.frames.collect { captured ->
                 val message = buildAudioMessage(captured)
                 val result = outbound.trySend(message)
@@ -126,6 +155,12 @@ class StreamingClient(
             }
         }
 
+        val extrasForwarder = scope.launch {
+            for (extra in outboundExtras) {
+                outbound.trySend(extra)
+            }
+        }
+
         try {
             stub.streamAudio(outbound.receiveAsFlow()).collect { command ->
                 if (_state.value != StreamState.STREAMING) {
@@ -134,7 +169,8 @@ class StreamingClient(
                 handleServerCommand(command)
             }
         } finally {
-            forwarder.cancel()
+            frameForwarder.cancel()
+            extrasForwarder.cancel()
             outbound.close()
         }
     }
@@ -182,7 +218,7 @@ class StreamingClient(
             queueDepth = 0,
             microphoneActive = producer.isActive.value
         )
-        val handshake = ConnectHandshake.newBuilder()
+        val builder = ConnectHandshake.newBuilder()
             .setDeviceId(deviceId)
             .setConnectTimestampMs(System.currentTimeMillis())
             .setAppVersion(BuildConfig.VERSION_NAME)
@@ -192,8 +228,10 @@ class StreamingClient(
             .setHealth(health)
             .setSampleRateHz(config.sampleRateHz)
             .setFrameDurationMs(config.frameDurationMs)
-            .build()
-        return ClientStreamMessage.newBuilder().setHandshake(handshake).build()
+        locationProvider?.state?.value?.let { loc ->
+            builder.location = loc
+        }
+        return ClientStreamMessage.newBuilder().setHandshake(builder.build()).build()
     }
 
     private fun buildAudioMessage(frame: CapturedFrame): ClientStreamMessage {

@@ -91,6 +91,9 @@ class MainActivity : AppCompatActivity() {
     private fun ensurePermissionsThenStart() {
         val needed = buildList {
             if (!hasPermission(Manifest.permission.RECORD_AUDIO)) add(Manifest.permission.RECORD_AUDIO)
+            if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 !hasPermission(Manifest.permission.POST_NOTIFICATIONS)
             ) add(Manifest.permission.POST_NOTIFICATIONS)
