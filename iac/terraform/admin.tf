@@ -123,11 +123,9 @@ resource "google_cloud_run_v2_service" "admin" {
     google_vpc_access_connector.connector,
   ]
 
-  lifecycle {
-    ignore_changes = [
-      template[0].containers[0].image,
-    ]
-  }
+  # NOTE: no `ignore_changes` on the image — for the admin web UI we
+  # want Terraform to roll new revisions during R&D. Set var.admin_image
+  # to the tag you just pushed and run `terraform apply` to deploy.
 }
 
 # Production path: grant invoker only to the principals listed in

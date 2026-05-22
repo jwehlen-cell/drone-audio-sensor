@@ -124,3 +124,25 @@ Monitoring dashboard (see `iac/terraform/monitoring.tf` →
 tiles cover gateway requests + latency + instance counts, Memorystore
 memory, Pub/Sub publish/ack rates, and TAK backlog. The paired alert
 policies are documented in [RUNBOOK.md](RUNBOOK.md).
+
+## Local SOH simulator
+
+For dashboard testing without streaming audio through the gateway, run:
+
+```bash
+pip install -r scripts/requirements.txt
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT=drone-audio-sensor
+
+python scripts/simulate_soh_phones.py \
+  --project drone-audio-sensor \
+  --redis-host "$(terraform -chdir=iac/terraform output -raw redis_host)" \
+  --count 10 \
+  --interval-seconds 180
+```
+
+The simulator writes `devices/{id}` documents in Firestore and refreshes
+`device:{id}` keys in Redis every three minutes. It does not connect to
+the gateway, publish audio frames, or trigger inference. Memorystore is
+private, so the machine running the script must be able to reach the VPC
+Redis IP.
