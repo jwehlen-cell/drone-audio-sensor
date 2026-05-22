@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
 
+    # IAM/IAP enforcement toggle.
+    #
+    # Defaults to False so R&D environments can ship without standing up
+    # an identity-token flow. Set to True in production (and pair with
+    # admin_allow_unauthenticated_invocations=false in Terraform) to
+    # require the X-Goog-Authenticated-User-Email header.
+    require_auth: bool = False
+
     log_level: str = "INFO"
     structured_logs: bool = True
     cloud_logging: bool = False

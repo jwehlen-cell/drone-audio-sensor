@@ -26,19 +26,62 @@ All env vars are `ADMIN_`-prefixed:
 
 ## Authentication
 
-The admin service is deployed with `allowUnauthenticatedInvocations = false`. Cloud Run will reject any request without an IAM-validated identity token (`roles/run.invoker`).
+The admin service has two auth modes, controlled by a single Terraform
+variable `admin_allow_unauthenticated_invocations` and its matching
+server-side env var `ADMIN_REQUIRE_AUTH`.
 
-When fronted by IAP or Cloud Run + IAM, the request reaches the app with the `X-Goog-Authenticated-User-Email` header — that's what the FastAPI dependency uses to identify the caller.
-
-For local development without auth:
+### R&D mode (current default)
 
 ```
+admin_allow_unauthenticated_invocations = true   # Terraform
+ADMIN_REQUIRE_AUTH                      = false  # auto-set from the var
+```
+
+- Cloud Run grants `roles/run.invoker` to `allUsers` so the URL is
+  reachable from a laptop without an identity token.
+- The server-side `_resolve_user` dependency does NOT raise on missing
+  `X-Goog-Authenticated-User-Email`. Audit logs label unauthenticated
+  callers as `anonymous`.
+
+This is the default because the SOH page is the primary debug surface
+during R&D and the friction of `gcloud auth print-identity-token`
+isn't justified for an internal dev tool.
+
+### Production mode
+
+```
+admin_allow_unauthenticated_invocations = false
+admin_invoker_members = [
+  "user:you@example.com",
+  "group:drone-ops@example.com",
+]
+```
+
+- The `allUsers` invoker binding disappears; only the listed members
+  can hit the URL.
+- `ADMIN_REQUIRE_AUTH=true` is set on the Cloud Run env, so the
+  FastAPI dependency raises HTTP 401 for any request missing the
+  `X-Goog-Authenticated-User-Email` header.
+- Operators access via `gcloud run services proxy …` which injects a
+  signed identity token.
+
+Switching between modes is one variable change + `terraform apply`.
+The same admin_invoker_members list is honored in either mode — it's
+just additive in R&D and gating in production.
+
+### Local development
+
+For running outside Cloud Run:
+
+```
+ADMIN_REQUIRE_AUTH=false python -m admin.main
+# or, if require_auth is true, fall back to the legacy bypass:
 ADMIN_ALLOW_UNAUTHENTICATED=true python -m admin.main
 ```
 
-**Do not set `ADMIN_ALLOW_UNAUTHENTICATED=true` in any non-local environment.**
-
-TODO: replace the placeholder dependency with an IAP session integration so the auth model is end-to-end verified, not just trusted from the Cloud Run header.
+TODO: replace the header-trust dependency with an IAP session
+integration so the production-mode auth model is end-to-end verified,
+not just trusted from the Cloud Run header.
 
 ## Local development
 

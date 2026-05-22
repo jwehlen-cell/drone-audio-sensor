@@ -31,21 +31,43 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 def _resolve_user(request: Request) -> str:
     """Identify the caller.
 
-    Production deployments front this service with Cloud Run IAM
-    (`run.invoker` required) — the load balancer / Cloud Run then sets
-    `X-Goog-Authenticated-User-Email`. For local development we accept
-    the unauthenticated path only when ADMIN_ALLOW_UNAUTHENTICATED=true.
+    Two modes, controlled by `settings.require_auth` (env: `ADMIN_REQUIRE_AUTH`):
 
-    TODO: Replace this with an IAP-integrated session once we wire IAP in
-    front of the admin Cloud Run service. The placeholder here is the
-    minimum that keeps the service from being usable without an opt-in
-    env knob.
+      false (default, R&D mode)
+          The IAM check is *not* enforced server-side. Whatever the
+          `X-Goog-Authenticated-User-Email` header says is used for
+          audit logging; if absent, the caller is labeled `anonymous`.
+          Pair this with `admin_allow_unauthenticated_invocations =
+          true` in Terraform so the Cloud Run service is reachable
+          without an identity token.
+
+      true (production)
+          The header MUST be present (set by Cloud Run + IAM /
+          IAP). Missing header → HTTP 401. Pair this with
+          `admin_allow_unauthenticated_invocations = false`
+          and grant `roles/run.invoker` only to specific principals
+          via `admin_invoker_members`.
+
+    The legacy `ADMIN_ALLOW_UNAUTHENTICATED=true` env var still works
+    as a local-dev bypass when `require_auth=true`, so existing
+    development scripts don't break.
+
+    TODO: Replace this with an IAP-integrated session once we wire IAP
+    in front of the admin Cloud Run service. The header-trust shortcut
+    is fine for internal R&D but not a hardened production model.
     """
     email = request.headers.get("X-Goog-Authenticated-User-Email")
     if email:
         return email.replace("accounts.google.com:", "")
+
+    if not settings.require_auth:
+        # R&D mode: leave the auth plumbing in place but let unauthenticated
+        # callers through. Audit-log entries will identify them as anonymous.
+        return "anonymous"
+
     if os.environ.get("ADMIN_ALLOW_UNAUTHENTICATED", "").lower() == "true":
         return "local-dev"
+
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Admin UI requires authenticated Cloud Run invocation",

@@ -84,10 +84,23 @@ New `detections/{detection_id}` documents look like:
 
 ## Auth
 
-Cloud Run service is created with **no public invoker grant**.
-`admin_invoker_members` (Terraform variable) holds the list of
-principals (`user:…`, `group:…`, `serviceAccount:…`) that get
-`roles/run.invoker`. For browser access:
+The admin service has two modes, controlled by the Terraform variable
+`admin_allow_unauthenticated_invocations`. The full mode reference
+lives in [`backend/admin/README.md`](../backend/admin/README.md);
+short version:
+
+| Mode | Terraform | Server | Who can reach the SOH page |
+|---|---|---|---|
+| **R&D (default)** | `admin_allow_unauthenticated_invocations = true` | `ADMIN_REQUIRE_AUTH=false` | Anyone with the Cloud Run URL |
+| **Production** | `admin_allow_unauthenticated_invocations = false` | `ADMIN_REQUIRE_AUTH=true` | Only principals in `admin_invoker_members` |
+
+The auth dependency (`_resolve_user` in
+`backend/admin/src/admin/server.py`) is still in the call path in both
+modes — in R&D it just doesn't raise on a missing identity header, so
+flipping back to production-style enforcement is a one-variable change
++ `terraform apply`.
+
+For browser access in production mode:
 
 ```bash
 gcloud run services proxy drone-sensor-dev-admin --region=us-central1
@@ -99,8 +112,9 @@ validates it and forwards the request with
 `X-Goog-Authenticated-User-Email` set, which the admin app uses to
 identify the caller in audit logs.
 
-**TODO:** front the service with IAP (Identity-Aware Proxy) for a
-browser-friendly experience without the gcloud proxy.
+**TODO:** front the service with IAP (Identity-Aware Proxy) so the
+production-mode auth model is end-to-end verified rather than relying
+on the Cloud Run header injection.
 
 ## Cloud Monitoring dashboard
 

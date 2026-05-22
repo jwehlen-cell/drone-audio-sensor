@@ -101,6 +101,14 @@ resource "google_cloud_run_v2_service" "admin" {
         name  = "ADMIN_STRUCTURED_LOGS"
         value = "true"
       }
+      # IAM enforcement toggle. R&D environments leave this `false` so
+      # the SOH page can be opened from a laptop without an identity
+      # token; production should set this `true` and pair it with
+      # admin_allow_unauthenticated_invocations = false in Terraform.
+      env {
+        name  = "ADMIN_REQUIRE_AUTH"
+        value = tostring(!var.admin_allow_unauthenticated_invocations)
+      }
     }
   }
 
@@ -122,8 +130,9 @@ resource "google_cloud_run_v2_service" "admin" {
   }
 }
 
-# Explicitly require IAM auth — never allow public ingress.
-# Grant invoker only to the principals listed in admin_invoker_members.
+# Production path: grant invoker only to the principals listed in
+# admin_invoker_members. Stays in place even in R&D so flipping the
+# unauthenticated flag back off doesn't require re-listing operators.
 resource "google_cloud_run_v2_service_iam_member" "admin_invokers" {
   for_each = toset(var.admin_invoker_members)
   project  = var.project_id
@@ -131,6 +140,20 @@ resource "google_cloud_run_v2_service_iam_member" "admin_invokers" {
   name     = google_cloud_run_v2_service.admin.name
   role     = "roles/run.invoker"
   member   = each.value
+}
+
+# R&D path: when admin_allow_unauthenticated_invocations is true, grant
+# `allUsers` the invoker role so the SOH page is reachable without an
+# identity token. To re-enable IAM, flip the variable to false and run
+# `terraform apply`; this resource disappears and the prod-style
+# `admin_invokers` bindings take over.
+resource "google_cloud_run_v2_service_iam_member" "admin_public_invoker" {
+  count    = var.admin_allow_unauthenticated_invocations ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_service.admin.location
+  name     = google_cloud_run_v2_service.admin.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 # Firestore TTL on the detections collection — keeps the admin "recent

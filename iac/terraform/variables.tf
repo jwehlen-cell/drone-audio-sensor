@@ -159,9 +159,15 @@ variable "admin_max_instances" {
 }
 
 variable "admin_invoker_members" {
-  description = "Principals (user:..., group:..., serviceAccount:...) granted run.invoker on the admin Cloud Run service. Leave empty to require manual binding via gcloud or the console."
+  description = "Principals (user:..., group:..., serviceAccount:...) granted run.invoker on the admin Cloud Run service. Leave empty to require manual binding via gcloud or the console. Ignored when admin_allow_unauthenticated_invocations = true."
   type        = list(string)
   default     = []
+}
+
+variable "admin_allow_unauthenticated_invocations" {
+  description = "When true (R&D default), the admin Cloud Run service accepts unauthenticated calls and the server-side IAM check is disabled. Set to false in production and populate admin_invoker_members."
+  type        = bool
+  default     = true
 }
 
 variable "redis_tier" {
