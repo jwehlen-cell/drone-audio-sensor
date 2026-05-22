@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.dronesensor.app.admin.KioskController
 import com.dronesensor.app.audio.AudioCaptureService
 import com.dronesensor.app.audio.ServiceStatus
 import com.dronesensor.app.config.AppConfig
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var kiosk: KioskController
 
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -43,6 +45,9 @@ class MainActivity : AppCompatActivity() {
         binding.buttonStart.setOnClickListener { ensurePermissionsThenStart() }
         binding.buttonStop.setOnClickListener { AudioCaptureService.stop(this) }
 
+        kiosk = KioskController(this)
+        kiosk.applyKioskPolicies()
+
         observeStatus()
     }
 
@@ -51,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         if (!ServiceStatus.running.value) {
             ensurePermissionsThenStart()
         }
+        kiosk.enterLockTask(this)
     }
 
     private fun observeStatus() {

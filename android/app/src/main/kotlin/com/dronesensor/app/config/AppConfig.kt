@@ -34,12 +34,22 @@ class AppConfig private constructor(context: Context) {
         get() = prefs.getString(KEY_SITE_LABEL, "")!!
         set(value) = prefs.edit { putString(KEY_SITE_LABEL, value) }
 
+    /**
+     * JWT audience claim, normally the gateway URL. Leaving this blank
+     * disables JWT auth on the client side (use only for local dev /
+     * pre-provisioning testing).
+     */
+    var jwtAudience: String
+        get() = prefs.getString(KEY_JWT_AUDIENCE, "")!!
+        set(value) = prefs.edit { putString(KEY_JWT_AUDIENCE, value) }
+
     companion object {
         private const val PREFS = "drone_sensor_config"
         private const val KEY_HOST = "grpc_host"
         private const val KEY_PORT = "grpc_port"
         private const val KEY_TLS = "grpc_tls"
         private const val KEY_SITE_LABEL = "site_label"
+        private const val KEY_JWT_AUDIENCE = "jwt_audience"
 
         @Volatile private var instance: AppConfig? = null
 

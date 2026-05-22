@@ -8,6 +8,7 @@ import structlog
 
 import drone_audio_pb2_grpc as pb_grpc
 
+from .auth import JwtAuth
 from .config import settings
 from .registry import DeviceRegistry
 from .service import DroneAudioStreamServicer
@@ -19,7 +20,13 @@ log = structlog.get_logger(__name__)
 async def serve() -> None:
     registry = DeviceRegistry()
     state = DeviceStateStore()
-    servicer = DroneAudioStreamServicer(registry, state)
+    auth = JwtAuth(registry) if settings.require_auth else None
+    servicer = DroneAudioStreamServicer(registry, state, auth)
+    log.info(
+        "auth_configured",
+        require_auth=settings.require_auth,
+        audience=settings.jwt_audience,
+    )
 
     server = grpc.aio.server(
         options=[

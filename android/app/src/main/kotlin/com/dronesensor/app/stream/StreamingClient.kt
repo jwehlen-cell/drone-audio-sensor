@@ -9,6 +9,7 @@ import com.dronesensor.app.audio.CapturedFrame
 import com.dronesensor.app.config.AppConfig
 import com.dronesensor.app.health.DeviceHealthSnapshot
 import com.dronesensor.app.identity.DeviceIdentity
+import com.dronesensor.app.identity.JwtSigner
 import com.dronesensor.app.location.LocationProvider
 import com.dronesensor.proto.AudioFrame
 import com.dronesensor.proto.ClientStreamMessage
@@ -20,8 +21,11 @@ import com.dronesensor.proto.LocationStatus
 import com.dronesensor.proto.LocationUpdate
 import com.dronesensor.proto.ServerCommand
 import com.google.protobuf.ByteString
+import io.grpc.ClientInterceptors
 import io.grpc.ManagedChannel
+import io.grpc.Metadata
 import io.grpc.okhttp.OkHttpChannelBuilder
+import io.grpc.stub.MetadataUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -130,7 +134,8 @@ class StreamingClient(
     }
 
     private suspend fun runOneSession(channel: ManagedChannel) {
-        val stub = DroneAudioStreamGrpcKt.DroneAudioStreamCoroutineStub(channel)
+        val authed = attachAuth(channel)
+        val stub = DroneAudioStreamGrpcKt.DroneAudioStreamCoroutineStub(authed)
         val outbound = Channel<ClientStreamMessage>(
             capacity = 32,
             onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -196,6 +201,25 @@ class StreamingClient(
                 Log.d(TAG, "Server command without recognized payload (id=${command.commandId})")
             }
         }
+    }
+
+    private fun attachAuth(channel: ManagedChannel): io.grpc.Channel {
+        val audience = AppConfig.get(context).jwtAudience
+        if (audience.isBlank()) return channel
+        val jwt = try {
+            JwtSigner(DeviceIdentity.get(context)).sign(audience = audience)
+        } catch (t: Throwable) {
+            Log.w(TAG, "JWT signing failed; sending request unauthenticated: ${t.message}")
+            return channel
+        }
+        val metadata = Metadata().apply {
+            put(
+                Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER),
+                "Bearer $jwt",
+            )
+        }
+        val interceptor = MetadataUtils.newAttachHeadersInterceptor(metadata)
+        return ClientInterceptors.intercept(channel, interceptor)
     }
 
     private fun buildChannel(host: String, port: Int, useTls: Boolean): ManagedChannel {

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     health_report_interval_seconds: int = 30
     session_idle_timeout_seconds: int = 90
 
+    require_auth: bool = False
+    jwt_audience: str = ""
+    jwt_issuer: str = "drone-sensor"
+    jwt_public_key_cache_seconds: int = 300
+
     log_level: str = "INFO"
     structured_logs: bool = True
     cloud_logging: bool = False

@@ -109,6 +109,16 @@ class DeviceRegistry:
             merge=True,
         )
 
+    async def get_public_key(self, device_id: str) -> str | None:
+        snap = await self._collection.document(device_id).get()
+        if not snap.exists:
+            return None
+        data = snap.to_dict() or {}
+        if data.get("status") == "revoked":
+            return None
+        pem = data.get("public_key_pem")
+        return pem if isinstance(pem, str) and pem else None
+
     async def mark_disconnected(self, device_id: str, *, reason: str) -> None:
         await self._collection.document(device_id).set(
             {

@@ -165,9 +165,21 @@ variable "vpc_connector_cidr" {
 }
 
 variable "allow_unauthenticated_invocations" {
-  description = "Whether the Cloud Run service allows unauthenticated invocations. Should be true for R&D so phones can connect without OIDC tokens."
+  description = "Whether the Cloud Run service allows unauthenticated invocations. The gateway runs its own JWT auth (Keystore-backed device identity), so the Cloud Run IAM layer stays open."
   type        = bool
   default     = true
+}
+
+variable "gateway_require_auth" {
+  description = "Whether the gateway enforces device JWT validation. Set to true once devices have been provisioned with public keys in Firestore."
+  type        = bool
+  default     = false
+}
+
+variable "gateway_jwt_audience" {
+  description = "Expected JWT audience claim (typically the gateway's https URL). Required when gateway_require_auth = true."
+  type        = string
+  default     = ""
 }
 
 variable "labels" {

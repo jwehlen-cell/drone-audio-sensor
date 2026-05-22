@@ -6,11 +6,13 @@ Android + Google Cloud system for continuous drone audio detection using YAMNet,
 
 ```
 proto/                  Shared gRPC/protobuf contract (Android, backend, TAK publisher)
-android/                Dedicated-device sensor app
-backend/gateway/        Python asyncio gRPC gateway service
+android/                Dedicated-device sensor app (Keystore-backed JWT auth, kiosk-capable)
+backend/gateway/        Python asyncio gRPC gateway service (validates device JWTs)
 backend/inference/      YAMNet inference worker pool
 backend/tak_publisher/  Pub/Sub -> CoT/TAK Server bridge
-iac/terraform/          GCP infrastructure as code
+iac/terraform/          GCP infrastructure as code (services, IAM, dashboards, alerts)
+scripts/                Admin tooling (provision_device.py)
+docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY)
 ```
 
 ## Session 1 — Phone-side streaming core
@@ -75,10 +77,29 @@ Delivered:
 - Manifest: ACCESS_FINE/COARSE/BACKGROUND_LOCATION + FOREGROUND_SERVICE_LOCATION; service `foregroundServiceType="microphone|location"`
 - MainActivity now also requests `ACCESS_FINE_LOCATION`
 
+## Session 5 — Security, kiosk mode, ops
+
+Delivered:
+
+- **Hardware-backed device identity** — `DeviceIdentity` now generates an EC P-256 keypair in `AndroidKeyStore` (StrongBox when available). The private key never leaves the secure element. Public key exported as PEM for admin registration.
+- **JWT-based device auth** — `JwtSigner` builds ES256 JWTs (header.payload.sig with raw R||S signatures) bound to the device's Keystore key. Attached as `Authorization: Bearer` on every gRPC channel via a `MetadataUtils` interceptor.
+- **Gateway JWT validation** — `auth.py` validates ES256 signatures against per-device public keys looked up from Firestore, cached for 5 min. Toggle via `GATEWAY_REQUIRE_AUTH`. Rejects when `sub != kid` or device is revoked.
+- **Admin provisioning CLI** — `scripts/provision_device.py` registers / revokes / lists / inspects devices in Firestore.
+- **Device Owner + kiosk** — `DeviceOwnerReceiver` + `KioskController` add lock-task mode, persistent HOME, keyguard disable when the app is set as device owner. Manifest and device-admin XML policies registered.
+- **Comprehensive monitoring** — Six alert policies (5xx, p95 latency, instance saturation, Redis memory, Pub/Sub backlog, DLQ presence) + a six-tile dashboard via `google_monitoring_dashboard`.
+- **Operator docs** — [`docs/PROVISIONING.md`](docs/PROVISIONING.md) · [`docs/MDM_ENROLLMENT.md`](docs/MDM_ENROLLMENT.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) · [`docs/SECURITY.md`](docs/SECURITY.md)
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
 2. ✅ Cloud gateway + Terraform skeleton
 3. ✅ YAMNet inference worker
 4. ✅ TAK/CoT publisher + Android hardening
-5. Security, kiosk mode, ops, docs
+5. ✅ Security, kiosk mode, ops, docs
+
+## What's still outside scope
+
+- **Custom drone classifier** — still using YAMNet's raw `Drone` AudioSet class. Training a small head on YAMNet embeddings against negative sounds (helicopters, lawn equipment, HVAC) is the next quality lever.
+- **Multi-sensor localization** — markers placed at sensor lat/lon, not at estimated drone location.
+- **Zero-touch enrollment loop** — manual ADB provisioning works today; Android Management API path is documented but not automated end-to-end.
+- **Notification channels for alert policies** — the alert policies have no `notification_channels` configured; create channels in the console and edit `monitoring.tf` to attach them.

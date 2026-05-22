@@ -10,6 +10,7 @@ import structlog
 import drone_audio_pb2 as pb
 import drone_audio_pb2_grpc as pb_grpc
 
+from .auth import AuthError, JwtAuth
 from .config import settings
 from .registry import DeviceRegistry
 from .state import DeviceState, DeviceStateStore
@@ -55,9 +56,15 @@ def _new_command_id() -> str:
 
 
 class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
-    def __init__(self, registry: DeviceRegistry, state: DeviceStateStore) -> None:
+    def __init__(
+        self,
+        registry: DeviceRegistry,
+        state: DeviceStateStore,
+        auth: JwtAuth | None = None,
+    ) -> None:
         self._registry = registry
         self._state = state
+        self._auth = auth
 
     async def StreamAudio(
         self,
@@ -66,6 +73,24 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
     ) -> AsyncIterator[pb.ServerCommand]:
         peer = context.peer()
         bound = log.bind(peer=peer)
+
+        authed_device_id: str | None = None
+        if settings.require_auth:
+            if self._auth is None:
+                await context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED,
+                    "auth required but not configured",
+                )
+                return
+            token = _extract_bearer(context)
+            try:
+                claims = await self._auth.validate(token or "")
+            except AuthError as e:
+                bound.warning("auth_failed", reason=str(e))
+                await context.abort(grpc.StatusCode.UNAUTHENTICATED, str(e))
+                return
+            authed_device_id = str(claims.get("sub", ""))
+            bound = bound.bind(authed_device_id=authed_device_id)
 
         try:
             first = await self._next_message(request_iterator)
@@ -84,6 +109,18 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
         device_id = handshake.device_id
         if not device_id:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "device_id required")
+            return
+
+        if authed_device_id is not None and authed_device_id != device_id:
+            bound.warning(
+                "auth_device_id_mismatch",
+                claimed=device_id,
+                authenticated=authed_device_id,
+            )
+            await context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "JWT subject does not match handshake device_id",
+            )
             return
 
         session_id = _new_command_id()
@@ -224,3 +261,10 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
         async for msg in request_iterator:
             return msg
         raise StopAsyncIteration
+
+
+def _extract_bearer(context: grpc.aio.ServicerContext) -> str | None:
+    for key, value in context.invocation_metadata():
+        if key.lower() == "authorization" and value.lower().startswith("bearer "):
+            return value[7:].strip()
+    return None

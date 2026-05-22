@@ -78,6 +78,14 @@ resource "google_cloud_run_v2_service" "gateway" {
         name  = "GATEWAY_STRUCTURED_LOGS"
         value = "true"
       }
+      env {
+        name  = "GATEWAY_REQUIRE_AUTH"
+        value = tostring(var.gateway_require_auth)
+      }
+      env {
+        name  = "GATEWAY_JWT_AUDIENCE"
+        value = var.gateway_jwt_audience
+      }
 
       startup_probe {
         tcp_socket {
