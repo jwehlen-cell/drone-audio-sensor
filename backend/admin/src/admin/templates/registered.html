@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Registered phones — Drone Sensor Admin{% endblock %}
+{% block content %}
+
+<section>
+    <h2>Registered phones</h2>
+    <p class="muted">
+        Click an action to change a device's state. Reactivating a revoked
+        device or requesting a wipe requires an extra confirmation. Wiped
+        devices cannot be reactivated from this page.
+    </p>
+
+    {% if not rows %}
+        <p class="empty">No devices registered. Use <code>scripts/provision_device.py</code> to register a phone.</p>
+    {% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Device</th>
+                <th>State</th>
+                <th>Site</th>
+                <th>Public key</th>
+                <th>Last seen (ms)</th>
+                <th>Wipe</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            {% set d = row.device %}
+            <tr>
+                <td><code>{{ d.device_id }}</code></td>
+                <td><span class="state state-{{ d.state }}">{{ d.state }}</span></td>
+                <td>{{ d.site_label or '—' }}</td>
+                <td>
+                    {% if d.has_public_key %}
+                        <span title="last 12 chars of the PEM body">{{ d.public_key_fingerprint }}</span>
+                    {% else %}
+                        <span class="warn">none registered</span>
+                    {% endif %}
+                </td>
+                <td>{{ d.last_seen_ms or '—' }}</td>
+                <td>
+                    {% if d.wipe_sent_at_ms %}
+                        <span class="state state-wipe_sent">sent · {{ d.wipe_sent_at_ms }}</span>
+                    {% elif d.wipe_requested_at_ms %}
+                        <span class="state state-wipe_requested">requested · waiting for connect</span>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not row.allowed_transitions %}
+                        <span class="muted">no actions</span>
+                    {% else %}
+                        {% for target in row.allowed_transitions %}
+                            <form method="post"
+                                  action="/api/devices/{{ d.device_id }}/state"
+                                  class="inline-action"
+                                  onsubmit="return confirmTransition(this, '{{ d.state }}', '{{ target }}', {{ 'true' if row.extra_confirm[target] else 'false' }});">
+                                <input type="hidden" name="target" value="{{ target }}" />
+                                <input type="hidden" name="confirm" value="" />
+                                <button type="submit" class="action action-{{ target }}">
+                                    → {{ target }}
+                                </button>
+                            </form>
+                        {% endfor %}
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+
+<script src="{{ url_for('static', path='app.js') }}"></script>
+{% endblock %}

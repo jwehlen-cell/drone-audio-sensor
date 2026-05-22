@@ -8,6 +8,7 @@ import structlog
 from google.cloud import firestore
 
 from .config import settings
+from .state_machine import STATE_ACTIVE, STATE_WIPE_SENT, normalize
 
 log = structlog.get_logger(__name__)
 
@@ -18,6 +19,15 @@ class DeviceRegistration:
     session_id: str
     first_seen_ms: int
     handshake_ms: int
+
+
+@dataclass
+class DeviceLookup:
+    """Subset of the device doc needed on the hot auth path."""
+
+    device_id: str
+    state: str
+    public_key_pem: str | None
 
 
 class DeviceRegistry:
@@ -51,9 +61,11 @@ class DeviceRegistry:
         doc = self._collection.document(device_id)
         snap = await doc.get()
         first_seen_ms = now_ms
+        preserved_state: str | None = None
         if snap.exists:
             data = snap.to_dict() or {}
             first_seen_ms = int(data.get("first_seen_ms", now_ms))
+            preserved_state = data.get("state")
 
         payload: dict[str, Any] = {
             "device_id": device_id,
@@ -68,8 +80,11 @@ class DeviceRegistry:
             "sample_rate_hz": sample_rate_hz,
             "frame_duration_ms": frame_duration_ms,
             "auth_token_id": auth_token_id,
-            "status": "active",
         }
+        # Only seed the state field if the device has no recorded state yet;
+        # never clobber an existing lost/revoked/wipe_* state on handshake.
+        if preserved_state is None:
+            payload["state"] = STATE_ACTIVE
         if latitude is not None and longitude is not None:
             payload["current_location"] = firestore.GeoPoint(latitude, longitude)
             payload["location_accuracy_m"] = location_accuracy_m
@@ -105,24 +120,58 @@ class DeviceRegistry:
                 "location_accuracy_m": accuracy_m,
                 "location_status": status,
                 "location_timestamp_ms": timestamp_ms,
+                "last_seen_ms": int(time.time() * 1000),
             },
             merge=True,
         )
 
-    async def get_public_key(self, device_id: str) -> str | None:
+    async def lookup(self, device_id: str) -> DeviceLookup | None:
+        """Fetch the auth-relevant subset of a device document."""
         snap = await self._collection.document(device_id).get()
         if not snap.exists:
             return None
         data = snap.to_dict() or {}
-        if data.get("status") == "revoked":
-            return None
         pem = data.get("public_key_pem")
-        return pem if isinstance(pem, str) and pem else None
+        return DeviceLookup(
+            device_id=device_id,
+            state=normalize(data.get("state") or data.get("status")),
+            public_key_pem=pem if isinstance(pem, str) and pem else None,
+        )
 
-    async def mark_disconnected(self, device_id: str, *, reason: str) -> None:
+    async def get_public_key(self, device_id: str) -> str | None:
+        """Backward-compatible accessor used by JwtAuth. Returns None for
+        any state that should not be allowed to authenticate at all."""
+        lookup = await self.lookup(device_id)
+        if lookup is None:
+            return None
+        # Revoked and wipe_sent must not authenticate.
+        # active / lost / wipe_requested all need a successful JWT verify so
+        # the gateway can still take state-specific action.
+        from .state_machine import is_connectable
+        if not is_connectable(lookup.state):
+            return None
+        return lookup.public_key_pem
+
+    async def get_state(self, device_id: str) -> str | None:
+        lookup = await self.lookup(device_id)
+        return lookup.state if lookup else None
+
+    async def mark_wipe_sent(self, device_id: str, *, session_id: str) -> None:
         await self._collection.document(device_id).set(
             {
-                "status": "offline",
+                "state": STATE_WIPE_SENT,
+                "wipe_sent_at_ms": int(time.time() * 1000),
+                "last_wipe_session_id": session_id,
+            },
+            merge=True,
+        )
+
+    async def mark_disconnected(self, device_id: str, *, reason: str) -> None:
+        # We deliberately do NOT touch the state field here — that's the
+        # lifecycle state. Connection state is derived from last_seen_ms
+        # by the admin dashboard.
+        await self._collection.document(device_id).set(
+            {
                 "last_disconnect_ms": int(time.time() * 1000),
                 "last_disconnect_reason": reason,
             },

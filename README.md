@@ -10,9 +10,10 @@ android/                Dedicated-device sensor app (Keystore-backed JWT auth, k
 backend/gateway/        Python asyncio gRPC gateway service (validates device JWTs)
 backend/inference/      YAMNet inference worker pool
 backend/tak_publisher/  Pub/Sub -> CoT/TAK Server bridge
+backend/admin/          FastAPI status + lifecycle admin UI (scale-to-zero Cloud Run)
 iac/terraform/          GCP infrastructure as code (services, IAM, dashboards, alerts)
 scripts/                Admin tooling (provision_device.py)
-docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY)
+docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY, DEVICE_LIFECYCLE, DASHBOARD)
 ```
 
 ## Architecture
@@ -133,6 +134,17 @@ Delivered:
 - **Comprehensive monitoring** — Six alert policies (5xx, p95 latency, instance saturation, Redis memory, Pub/Sub backlog, DLQ presence) + a six-tile dashboard via `google_monitoring_dashboard`.
 - **Operator docs** — [`docs/PROVISIONING.md`](docs/PROVISIONING.md) · [`docs/MDM_ENROLLMENT.md`](docs/MDM_ENROLLMENT.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/DASHBOARD.md`](docs/DASHBOARD.md)
 
+## Post-session — admin dashboard + device lifecycle
+
+Added after the original five sessions:
+
+- **Lifecycle state machine** — devices live in one of `active` / `lost` / `revoked` / `wipe_requested` / `wipe_sent`. The gateway enforces the rules on every connect (lost = location-only, no audio publish; wipe_requested = one short session to receive the wipe command). See [docs/DEVICE_LIFECYCLE.md](docs/DEVICE_LIFECYCLE.md).
+- **Remote wipe** — `CONTROL_TYPE_WIPE_DEVICE` added to the proto; Android `WipeHandler` calls `DevicePolicyManager.wipeData` only when Device Owner.
+- **Admin web service** ([`backend/admin/`](backend/admin/)) — FastAPI + Jinja2 templates, scale-to-zero Cloud Run service, IAM-gated. Status page (live phones + last-hour detections) and Registered Phones page (state-transition buttons with confirmation prompts).
+- **Detections in Firestore with TTL** — inference worker now mirrors each Pub/Sub publish to `detections/{detection_id}` with `expires_at` (1 h default), so the admin UI can query the last hour cheaply. TTL policy provisioned via `google_firestore_field`.
+- **State-aware provisioning CLI** — `set-state`, `request-wipe`, `--state` filter on `list`.
+- **Tests** — `backend/gateway/tests/` exercise the transition matrix and the StreamAudio dispatch for active / lost / wipe_requested.
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
@@ -140,6 +152,7 @@ Delivered:
 3. ✅ YAMNet inference worker
 4. ✅ TAK/CoT publisher + Android hardening
 5. ✅ Security, kiosk mode, ops, docs
+6. ✅ Admin dashboard + device lifecycle states
 
 ## What's still outside scope
 

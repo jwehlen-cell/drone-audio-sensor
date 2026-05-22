@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Status — Drone Sensor Admin{% endblock %}
+{% block content %}
+
+<section>
+    <h2>Currently connected phones</h2>
+    {% if not live_devices %}
+        <p class="empty">No phones are currently streaming.</p>
+    {% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Device</th>
+                <th>State</th>
+                <th>Site</th>
+                <th>Freshness</th>
+                <th>Last seen</th>
+                <th>Frames / dropped / reconnects</th>
+                <th>Battery</th>
+                <th>Network</th>
+                <th>Latest location</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in live_devices %}
+            {% set l = row.live %}
+            {% set r = row.registered %}
+            {% set fresh = row.freshness_seconds %}
+            <tr class="dot {% if fresh is none %}fresh-red{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-red{% endif %}">
+                <td><code>{{ l.device_id }}</code></td>
+                <td>
+                    {% if r %}
+                        <span class="state state-{{ r.state }}">{{ r.state }}</span>
+                    {% else %}
+                        <span class="state state-unknown">unregistered</span>
+                    {% endif %}
+                </td>
+                <td>{{ l.site_label or '—' }}</td>
+                <td>{% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}</td>
+                <td>{{ l.last_seen_ms or '—' }}</td>
+                <td>{{ l.frames_received }} / {{ l.dropped_frames }} / {{ l.reconnect_count }}</td>
+                <td>{{ l.battery_percent }}%</td>
+                <td>{{ l.network_type }}</td>
+                <td>
+                    {% if r and r.location_lat is not none %}
+                        {{ "%.5f" | format(r.location_lat) }}, {{ "%.5f" | format(r.location_lon) }}
+                        {% if r.location_accuracy_m %}± {{ "%.0f" | format(r.location_accuracy_m) }} m{% endif %}
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+
+<section>
+    <h2>Detections in the last hour</h2>
+    {% if not detections %}
+        <p class="empty">No drone detections in the recent window.</p>
+    {% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Detection</th>
+                <th>Device</th>
+                <th>Site</th>
+                <th>Score (avg / peak)</th>
+                <th>Detected at</th>
+                <th>Location</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for d in detections %}
+            <tr>
+                <td><code>{{ d.detection_id[:12] }}…</code></td>
+                <td><code>{{ d.device_id }}</code></td>
+                <td>{{ d.site_label or '—' }}</td>
+                <td>{{ "%.2f" | format(d.average_score) }} / {{ "%.2f" | format(d.peak_score) }}</td>
+                <td>{{ d.published_at_ms or '—' }}</td>
+                <td>
+                    {% if d.location_lat is not none %}
+                        {{ "%.5f" | format(d.location_lat) }}, {{ "%.5f" | format(d.location_lon) }}
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+
+{% endblock %}

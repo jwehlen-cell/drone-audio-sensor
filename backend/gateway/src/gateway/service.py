@@ -14,6 +14,13 @@ from .auth import AuthError, JwtAuth
 from .config import settings
 from .registry import DeviceRegistry
 from .state import DeviceState, DeviceStateStore
+from .state_machine import (
+    STATE_ACTIVE,
+    STATE_LOST,
+    STATE_WIPE_REQUESTED,
+    may_publish_audio,
+    normalize,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -127,6 +134,13 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
         bound = bound.bind(device_id=device_id, session_id=session_id)
         bound.info("handshake_received", site_label=handshake.assigned_site_label)
 
+        # Read lifecycle state before doing any persistence — a revoked or
+        # wipe_sent device will have been rejected at the auth layer already,
+        # but a wipe_requested device gets one short session to receive the
+        # wipe command.
+        device_state = normalize(await self._registry.get_state(device_id))
+        bound = bound.bind(device_state=device_state)
+
         latitude = handshake.location.latitude if handshake.HasField("location") else None
         longitude = handshake.location.longitude if handshake.HasField("location") else None
         accuracy = (
@@ -183,6 +197,28 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
             ),
         )
 
+        # Wipe-on-connect: send the wipe command, flip the lifecycle state
+        # to wipe_sent, and close out cleanly. We trust the device-owner
+        # phone to call DevicePolicyManager.wipeData; we don't need a
+        # client-side ack for the Firestore flip because subsequent
+        # connections from a wipe_sent device will be rejected at auth.
+        if device_state == STATE_WIPE_REQUESTED:
+            bound.warning("wipe_command_dispatched")
+            yield pb.ServerCommand(
+                command_id=_new_command_id(),
+                server_timestamp_ms=_now_ms(),
+                control=pb.ControlCommand(
+                    type=pb.CONTROL_TYPE_WIPE_DEVICE,
+                    detail_json=f'{{"session_id":"{session_id}"}}',
+                ),
+            )
+            await self._registry.mark_wipe_sent(device_id, session_id=session_id)
+            return
+
+        publish_audio = may_publish_audio(device_state)
+        if not publish_audio:
+            bound.info("audio_publish_disabled", reason=device_state)
+
         frames_received = 0
         last_acked_seq = -1
         disconnect_reason = "client_closed"
@@ -197,15 +233,19 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
                         sequence=int(frame.sequence_number),
                         frames_received=frames_received,
                     )
-                    await self._state.publish_frame(
-                        device_id=device_id,
-                        session_id=session_id,
-                        sequence=int(frame.sequence_number),
-                        capture_timestamp_ms=int(frame.capture_timestamp_ms),
-                        sample_rate_hz=int(frame.sample_rate_hz),
-                        pcm16_mono=frame.pcm16_mono,
-                        site_label=handshake.assigned_site_label,
-                    )
+                    # In `lost` mode we still touch state so dashboards see
+                    # the device as connected, but we don't forward audio
+                    # to the inference pipeline.
+                    if publish_audio:
+                        await self._state.publish_frame(
+                            device_id=device_id,
+                            session_id=session_id,
+                            sequence=int(frame.sequence_number),
+                            capture_timestamp_ms=int(frame.capture_timestamp_ms),
+                            sample_rate_hz=int(frame.sample_rate_hz),
+                            pcm16_mono=frame.pcm16_mono,
+                            site_label=handshake.assigned_site_label,
+                        )
                     if (
                         int(frame.sequence_number) - last_acked_seq
                         >= settings.ack_interval_frames

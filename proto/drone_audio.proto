@@ -139,4 +139,7 @@ enum ControlType {
   CONTROL_TYPE_REQUEST_LOCATION_REFRESH = 5;
   CONTROL_TYPE_UPDATE_THRESHOLD = 6;
   CONTROL_TYPE_UPDATE_MODEL_VERSION = 7;
+  // Gateway emits this when a device in wipe_requested state connects.
+  // Only acted upon by Device Owner installs (calls DevicePolicyManager.wipeData).
+  CONTROL_TYPE_WIPE_DEVICE = 8;
 }

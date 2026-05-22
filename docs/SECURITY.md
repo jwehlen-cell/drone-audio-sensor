@@ -7,7 +7,8 @@
 | T1 | Anyone on the internet streams audio into the pipeline | Per-device JWT auth (ES256, Keystore-backed) — gateway rejects on signature/sub mismatch |
 | T2 | Stolen phone replays old captured audio | Stale ACK/timestamps allowed but the device key is bound to the phone; suppression window limits damage |
 | T3 | Extracted device private key used elsewhere | Keys are generated in `AndroidKeyStore` with StrongBox preferred — extraction requires physical attack on the secure element |
-| T4 | Lost / compromised phone keeps streaming | Admin revokes via `provision_device.py revoke`; gateway clears its 5-minute public-key cache after TTL and rejects from then on |
+| T4 | Lost / compromised phone keeps streaming | Admin moves device to `lost` (location-only) or `revoked` via the admin UI or `provision_device.py set-state`; gateway clears its 5-minute public-key cache after TTL and rejects from then on |
+| T4a | Stolen Device Owner phone deserves a forced wipe | Admin transitions device to `wipe_requested`; gateway issues `CONTROL_TYPE_WIPE_DEVICE` on next connect and atomically flips state to `wipe_sent`; phone calls `DevicePolicyManager.wipeData` only if it is the Device Owner |
 | T5 | Eavesdropping on phone↔cloud audio | TLS at the Cloud Run edge (HTTPS+gRPC) |
 | T6 | Eavesdropping on TAK publisher↔TAK Server | Persistent TLS client cert connection; certs in Secret Manager |
 | T7 | TAK Server credential exfiltration | Stored only in Secret Manager; `secretAccessor` IAM scoped to the publisher SA; PEM written to chmod-600 tempfile and deleted after `load_cert_chain` |
@@ -63,13 +64,36 @@ There is no shared CA — each device has its own keypair. To rotate:
 3. `provision_device.py register DEVICE-ID --pubkey new.pem` — overwrites the public key in Firestore.
 4. The gateway cache TTL (5 min) is the maximum time the old key remains accepted; force eviction by restarting the gateway.
 
-### Revocation
+### Lifecycle states & revocation
+
+Each device document carries a `state` field that the gateway honors on
+every connect. The complete state machine — including the wipe-on-next
+-connect flow — lives in [DEVICE_LIFECYCLE.md](DEVICE_LIFECYCLE.md).
+Quick reference:
 
 ```
-python provision_device.py revoke DRONE-SENSOR-001 --reason "lost"
-# Within at most jwt_public_key_cache_seconds (default 300s),
-# the gateway will refuse new connections from that device.
+active           - normal device; can stream audio
+lost             - location-only; gateway accepts handshake/health/
+                   location but does NOT publish audio frames
+revoked          - gateway refuses connections outright
+wipe_requested   - on next connect, gateway sends CONTROL_TYPE_WIPE_DEVICE
+                   then atomically flips state to wipe_sent
+wipe_sent        - terminal; refuses further connections
 ```
+
+Operator commands:
+
+```
+python provision_device.py set-state DRONE-SENSOR-001 lost
+python provision_device.py set-state DRONE-SENSOR-001 revoked
+python provision_device.py request-wipe DRONE-SENSOR-001 --confirm WIPE
+```
+
+Within at most `jwt_public_key_cache_seconds` (default 300 s) the
+gateway will pick up the new state.
+
+The admin UI ([backend/admin/](../backend/admin/)) exposes the same
+transitions with extra-confirmation prompts on dangerous moves.
 
 ## Secrets inventory
 

@@ -29,6 +29,13 @@ tak_publisher_max_instances = 2
 cot_event_type              = "a-u-A"
 cot_stale_seconds           = 180
 
+# Admin UI (scales to zero; IAM-gated).
+# Grant run.invoker explicitly by listing principals here, e.g.
+# admin_invoker_members = ["user:you@example.com", "group:drone-ops@example.com"]
+admin_image          = ""
+admin_max_instances  = 2
+admin_invoker_members = []
+
 # BASIC tier is single-node, no HA — fine for R&D, swap to STANDARD_HA for prod.
 redis_tier      = "BASIC"
 redis_memory_gb = 1

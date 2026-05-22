@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from google.cloud import firestore, pubsub_v1
@@ -69,11 +70,43 @@ class DetectionPublisher:
             message_id=message_id,
             score=event.average_score,
         )
+
+        # Mirror to Firestore so the admin dashboard can show recent hits
+        # without subscribing to Pub/Sub. The expires_at field is wired to
+        # a Firestore TTL policy (Terraform google_firestore_field), so old
+        # docs vanish automatically after detection_doc_ttl_seconds.
+        try:
+            await self._write_detection_doc(event, message, message_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "detection_doc_write_failed",
+                detection_id=event.detection_id,
+                error=str(e),
+            )
+
         return message_id
 
     def _publish_blocking(self, payload: bytes, attributes: dict[str, str]) -> str:
         future = self._publisher.publish(self._topic, payload, **attributes)
         return future.result(timeout=30)
+
+    async def _write_detection_doc(
+        self,
+        event: DetectionEvent,
+        message: dict,
+        message_id: str,
+    ) -> None:
+        created_at = datetime.now(tz=timezone.utc)
+        expires_at = created_at + timedelta(seconds=settings.detection_doc_ttl_seconds)
+        doc_payload = {
+            **message,
+            "pubsub_message_id": message_id,
+            "created_at": created_at,
+            "expires_at": expires_at,
+        }
+        await self._firestore.collection(settings.detections_collection).document(
+            event.detection_id
+        ).set(doc_payload)
 
     async def _lookup_location(self, device_id: str) -> dict | None:
         try:

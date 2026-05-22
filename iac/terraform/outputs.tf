@@ -48,6 +48,16 @@ output "tak_credentials_secret" {
   value       = google_secret_manager_secret.tak_server_credentials.id
 }
 
+output "admin_url" {
+  description = "HTTPS URL of the admin UI Cloud Run service (IAM-gated; require run.invoker)."
+  value       = google_cloud_run_v2_service.admin.uri
+}
+
+output "admin_service_account" {
+  description = "Admin UI runtime service account email."
+  value       = google_service_account.admin.email
+}
+
 output "device_secret_name" {
   description = "Secret Manager secret holding device-bootstrap material (placeholder for Session 5)."
   value       = google_secret_manager_secret.device_bootstrap.id

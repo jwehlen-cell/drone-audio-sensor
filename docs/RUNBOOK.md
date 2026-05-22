@@ -40,19 +40,45 @@ python scripts/provision_device.py register DRONE-SENSOR-042 \
     --pubkey device_042.pub.pem --site "Site B"
 ```
 
-### Revoke a device
+### Change a device's lifecycle state
+
+Full state model: [DEVICE_LIFECYCLE.md](DEVICE_LIFECYCLE.md).
 
 ```bash
+# Mark lost (still authenticates but gateway drops audio).
+python scripts/provision_device.py set-state DRONE-SENSOR-042 lost
+
+# Revoke (gateway refuses connections).
 python scripts/provision_device.py revoke DRONE-SENSOR-042 \
     --reason "phone lost in storm"
+
+# Restore a revoked device (extra confirmation required).
+python scripts/provision_device.py set-state DRONE-SENSOR-042 active --confirm
+
+# Remote-wipe a phone on next connect (irreversible; Device Owner only).
+python scripts/provision_device.py request-wipe DRONE-SENSOR-042 --confirm WIPE
 ```
 
 Effective within `GATEWAY_JWT_PUBLIC_KEY_CACHE_SECONDS` (default 300s).
+For an immediate cutover, force a gateway redeploy:
+`gcloud run services update drone-sensor-dev-gateway --region=us-central1 --update-env-vars=_FORCE_RELOAD=$(date +%s)`.
+
+### Open the admin UI
+
+```bash
+gcloud run services proxy drone-sensor-dev-admin --region=us-central1
+# then open http://localhost:8080
+```
+
+Requires `roles/run.invoker` on `drone-sensor-<env>-admin` — grant via
+the `admin_invoker_members` Terraform variable or directly in the
+console.
 
 ### List active devices
 
 ```bash
 python scripts/provision_device.py list --site "Site B"
+python scripts/provision_device.py list --state lost
 ```
 
 ### Deploy a new gateway image

@@ -146,6 +146,24 @@ variable "subscription_max_delivery_attempts" {
   default     = 5
 }
 
+variable "admin_image" {
+  description = "Container image for the admin UI."
+  type        = string
+  default     = ""
+}
+
+variable "admin_max_instances" {
+  description = "Cloud Run max instance count for the admin UI. Scales to zero when idle."
+  type        = number
+  default     = 2
+}
+
+variable "admin_invoker_members" {
+  description = "Principals (user:..., group:..., serviceAccount:...) granted run.invoker on the admin Cloud Run service. Leave empty to require manual binding via gcloud or the console."
+  type        = list(string)
+  default     = []
+}
+
 variable "redis_tier" {
   description = "Memorystore tier (BASIC for R&D, STANDARD_HA for production)."
   type        = string

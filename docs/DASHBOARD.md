@@ -1,109 +1,109 @@
-# Low-Cost Status Dashboard
+# Status + Admin Dashboard
 
-This system can add a lightweight web dashboard for current phone connections
-and recent detections without introducing SQL or a continuously running web
-server.
+A small FastAPI service (`backend/admin/`) provides a status page and a
+registered-phones admin page over the same Firestore + Redis data the
+gateway and inference workers already use. There is no new database, no
+new always-on worker, and no static frontend build — server-rendered
+Jinja2 templates ship in the container.
 
-## Goal
+## Pages and endpoints
 
-Show:
+| URL | Purpose |
+|---|---|
+| `/` | **Status page.** Live device states pulled from Redis (`device:{id}` keys), joined to each device's Firestore registration. Below that, the last hour of detection events from the `detections` collection. |
+| `/registered` | **Registered phones page.** Every device document, with per-row buttons that drive lifecycle transitions (`active` / `lost` / `revoked` / `wipe_requested`). |
+| `/api/connected` | JSON of currently-live device states (Redis SCAN). |
+| `/api/registered` | JSON of every registered device with state, site, last-seen, key fingerprint, latest location. Never returns the full PEM. |
+| `/api/detections/recent` | JSON of the last hour of detections. |
+| `/api/devices/{id}/state` | `POST` (form-encoded) — change a device's lifecycle state. Validates the transition against the rules in [DEVICE_LIFECYCLE.md](DEVICE_LIFECYCLE.md). |
 
-- currently connected phones
-- last-seen time, site label, and latest location for each phone
-- detection hits from the last hour
-- basic score/model metadata for each hit
+## Architecture
 
-## Cheapest Architecture
-
-```mermaid
-flowchart LR
-    GW["Gateway Cloud Run"]
-    R["Memorystore Redis\nlive device state"]
-    INF["Inference Cloud Run"]
-    FS["Firestore\nrecent detections + slow snapshots"]
-    WEB["Static dashboard\nFirebase Hosting or Cloud Storage"]
-    API["Optional dashboard API\nCloud Run min=0"]
-
-    GW --> R
-    GW --> FS
-    INF --> FS
-    WEB --> API
-    API --> R
-    API --> FS
+```
+[admin user]
+   |  HTTPS w/ IAM-validated identity token
+   v
+Cloud Run admin service  (scale to zero, min_instances = 0)
+   |               \
+   v                v
+Firestore         Memorystore Redis
+ - devices         - device:{id} (TTL ~5 min)
+ - detections (TTL 1 h)
 ```
 
-Use Redis for high-frequency live status and Firestore for low-frequency,
-queryable records:
+The gateway writes lifecycle state to Firestore. The inference worker
+writes each confirmed detection to Firestore (`detections/{id}`) with an
+`expires_at` field; a Firestore TTL policy
+(`google_firestore_field.detections_ttl`) deletes those docs after one
+hour, so the dashboard's "last hour" query stays cheap and storage
+stays bounded.
 
-- Redis keeps live connection state and can be updated on every frame or
-  heartbeat.
-- Firestore stores confirmed detections and slower device snapshots.
-- A static dashboard reads a compact status API, or reads Firestore directly if
-  Firebase auth/rules are configured.
+## Data model
 
-## Data Model
+Existing `devices/{device_id}` documents now use a `state` field for
+lifecycle and reserve `status`-derived behavior for live connection
+freshness (computed from `last_seen_ms`, not stored as a field). State
+values:
 
-Keep existing `devices/{device_id}` documents for slow snapshots:
-
-```json
-{
-  "device_id": "DRONE-SENSOR-1234ABCD",
-  "status": "active",
-  "session_id": "...",
-  "assigned_site_label": "Site A",
-  "last_seen_ms": 1735692000000,
-  "current_location": "GeoPoint",
-  "location_accuracy_m": 8.5
-}
+```
+active | lost | revoked | wipe_requested | wipe_sent
 ```
 
-Add `detections/{detection_id}` for dashboard history:
+See [DEVICE_LIFECYCLE.md](DEVICE_LIFECYCLE.md) for the full state model
+and transition matrix.
 
-```json
+New `detections/{detection_id}` documents look like:
+
+```jsonc
 {
-  "detection_id": "...",
-  "device_id": "DRONE-SENSOR-1234ABCD",
+  "detection_id": "abc123…",
+  "device_id": "DRONE-SENSOR-001",
   "site_label": "Site A",
-  "timestamp_ms": 1735692000000,
   "average_score": 0.72,
   "peak_score": 0.91,
-  "model_name": "yamnet",
-  "model_version": "1",
-  "expires_at": "Firestore TTL timestamp"
+  "last_frame_timestamp_ms": 1735692000000,
+  "published_at_ms": 1735692001234,
+  "device_location": { "latitude": 35.1, "longitude": -78.4 },
+  "model": { "name": "yamnet", "version": "1" },
+  "expires_at": "<Timestamp now+1h>"
 }
 ```
 
-Use Firestore TTL on `expires_at` if only recent hits are needed. A one-day TTL
-is usually easier to operate than exactly one hour; the dashboard can still
-query only the last hour.
+## Cost shape
 
-## Cost Notes
+- Admin Cloud Run service is **scale-to-zero** (`min_instances = 0`).
+  No idle cost; one warm instance spins up when an admin loads a page.
+- Detection docs: Firestore TTL set on `expires_at` (1 hour by default)
+  auto-deletes old documents, so the recent-detections query reads at
+  most ~hourly volume and storage is bounded.
+- Heartbeats and per-frame device state stay in Redis — we explicitly
+  do *not* write every heartbeat to Firestore.
 
-The dashboard should be a small cost compared with audio inference.
+## Auth
 
-- Static hosting is usually free or pennies for low internal traffic.
-- Firestore detection writes are cheap when detections are rare.
-- A request-based Cloud Run dashboard API with `min_instances = 0` should cost
-  near zero for light use.
-- Do not write every device heartbeat to Firestore. At 1,000 phones and one
-  write every 30 seconds, that would be about 2.88 million writes per day.
+Cloud Run service is created with **no public invoker grant**.
+`admin_invoker_members` (Terraform variable) holds the list of
+principals (`user:…`, `group:…`, `serviceAccount:…`) that get
+`roles/run.invoker`. For browser access:
 
-Recommended write policy:
+```bash
+gcloud run services proxy drone-sensor-dev-admin --region=us-central1
+# open http://localhost:8080
+```
 
-- update Redis on every frame/heartbeat
-- write Firestore device snapshots every 1-5 minutes, or only on meaningful
-  status/location changes
-- write Firestore detection documents only for confirmed detections
+The proxy injects an ID token signed by your gcloud identity; Cloud Run
+validates it and forwards the request with
+`X-Goog-Authenticated-User-Email` set, which the admin app uses to
+identify the caller in audit logs.
 
-## Implementation Path
+**TODO:** front the service with IAP (Identity-Aware Proxy) for a
+browser-friendly experience without the gcloud proxy.
 
-1. Extend the inference publisher to also write each confirmed detection to
-   Firestore `detections/{detection_id}` with `timestamp_ms` and `expires_at`.
-2. Add a small dashboard API Cloud Run service with `min_instances = 0`.
-3. Implement `/status` by reading Redis live device keys plus Firestore
-   detections from the last hour.
-4. Host a static HTML/JS dashboard on Firebase Hosting or Cloud Storage.
-5. Add auth before exposing the dashboard outside a trusted network.
+## Cloud Monitoring dashboard
 
-This keeps the first version cheap and avoids adding Cloud SQL, BigQuery, or a
-new persistent database.
+In addition to the in-app admin UI, Terraform provisions a Cloud
+Monitoring dashboard (see `iac/terraform/monitoring.tf` →
+`google_monitoring_dashboard.drone_sensor`) for backend health. Six
+tiles cover gateway requests + latency + instance counts, Memorystore
+memory, Pub/Sub publish/ack rates, and TAK backlog. The paired alert
+policies are documented in [RUNBOOK.md](RUNBOOK.md).

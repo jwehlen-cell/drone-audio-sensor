@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.dronesensor.app.BuildConfig
+import com.dronesensor.app.admin.WipeHandler
 import com.dronesensor.app.audio.AudioFrameProducer
 import com.dronesensor.app.audio.CapturedFrame
 import com.dronesensor.app.config.AppConfig
@@ -14,6 +15,7 @@ import com.dronesensor.app.location.LocationProvider
 import com.dronesensor.proto.AudioFrame
 import com.dronesensor.proto.ClientStreamMessage
 import com.dronesensor.proto.ConnectHandshake
+import com.dronesensor.proto.ControlType
 import com.dronesensor.proto.DeviceHealth
 import com.dronesensor.proto.DeviceLocation
 import com.dronesensor.proto.DroneAudioStreamGrpcKt
@@ -196,10 +198,22 @@ class StreamingClient(
             }
             command.hasControl() -> {
                 Log.i(TAG, "Control command: ${command.control.type}")
+                if (command.control.type == ControlType.CONTROL_TYPE_WIPE_DEVICE) {
+                    handleWipeCommand(command.commandId)
+                }
             }
             else -> {
                 Log.d(TAG, "Server command without recognized payload (id=${command.commandId})")
             }
+        }
+    }
+
+    private fun handleWipeCommand(commandId: String) {
+        Log.w(TAG, "Received remote wipe command id=$commandId; invoking WipeHandler")
+        try {
+            WipeHandler(context).execute(reason = "gateway-command:$commandId")
+        } catch (t: Throwable) {
+            Log.e(TAG, "WipeHandler.execute failed", t)
         }
     }
 
