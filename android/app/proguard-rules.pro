@@ -1,0 +1,5 @@
+-keep class com.dronesensor.proto.** { *; }
+-keep class io.grpc.** { *; }
+-keep class com.google.protobuf.** { *; }
+-dontwarn javax.annotation.**
+-dontwarn org.codehaus.mojo.animal_sniffer.**

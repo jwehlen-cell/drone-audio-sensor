@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package droneaudio.v1;
+
+option java_package = "com.dronesensor.proto";
+option java_multiple_files = true;
+option java_outer_classname = "DroneAudioProto";
+
+service DroneAudioStream {
+  rpc StreamAudio(stream ClientStreamMessage) returns (stream ServerCommand);
+}
+
+message ClientStreamMessage {
+  oneof payload {
+    ConnectHandshake handshake = 1;
+    AudioFrame audio_frame = 2;
+    DeviceHealth health = 3;
+    LocationUpdate location_update = 4;
+  }
+}
+
+message ConnectHandshake {
+  string device_id = 1;
+  int64 connect_timestamp_ms = 2;
+  string app_version = 3;
+  string device_model = 4;
+  string os_version = 5;
+  string assigned_site_label = 6;
+  DeviceLocation location = 7;
+  DeviceHealth health = 8;
+  string auth_token_id = 9;
+  int32 sample_rate_hz = 10;
+  int32 frame_duration_ms = 11;
+}
+
+message AudioFrame {
+  string device_id = 1;
+  int64 capture_timestamp_ms = 2;
+  uint64 sequence_number = 3;
+  int32 sample_rate_hz = 4;
+  bytes pcm16_mono = 5;
+  DeviceHealth health = 6;
+}
+
+message LocationUpdate {
+  string device_id = 1;
+  int64 update_timestamp_ms = 2;
+  DeviceLocation location = 3;
+}
+
+message DeviceLocation {
+  double latitude = 1;
+  double longitude = 2;
+  double altitude_meters = 3;
+  float horizontal_accuracy_meters = 4;
+  int64 location_timestamp_ms = 5;
+  string provider = 6;
+  LocationStatus status = 7;
+}
+
+enum LocationStatus {
+  LOCATION_STATUS_UNSPECIFIED = 0;
+  LOCATION_STATUS_CURRENT = 1;
+  LOCATION_STATUS_LAST_KNOWN = 2;
+  LOCATION_STATUS_MANUAL = 3;
+  LOCATION_STATUS_UNAVAILABLE = 4;
+}
+
+message DeviceHealth {
+  int32 battery_percent = 1;
+  bool charging = 2;
+  NetworkType network_type = 3;
+  int32 dropped_frames = 4;
+  int32 reconnect_count = 5;
+  string app_version = 6;
+  ThermalState thermal_state = 7;
+  int32 queue_depth = 8;
+  bool microphone_active = 9;
+}
+
+enum NetworkType {
+  NETWORK_TYPE_UNSPECIFIED = 0;
+  NETWORK_TYPE_WIFI = 1;
+  NETWORK_TYPE_CELLULAR_LTE = 2;
+  NETWORK_TYPE_CELLULAR_5G = 3;
+  NETWORK_TYPE_CELLULAR_OTHER = 4;
+  NETWORK_TYPE_ETHERNET = 5;
+  NETWORK_TYPE_NONE = 6;
+}
+
+enum ThermalState {
+  THERMAL_STATE_UNSPECIFIED = 0;
+  THERMAL_STATE_NOMINAL = 1;
+  THERMAL_STATE_LIGHT = 2;
+  THERMAL_STATE_MODERATE = 3;
+  THERMAL_STATE_SEVERE = 4;
+  THERMAL_STATE_CRITICAL = 5;
+  THERMAL_STATE_EMERGENCY = 6;
+}
+
+message ServerCommand {
+  string command_id = 1;
+  int64 server_timestamp_ms = 2;
+  oneof payload {
+    SessionAck session_ack = 3;
+    FrameAck frame_ack = 4;
+    ConfigUpdate config_update = 5;
+    ControlCommand control = 6;
+  }
+}
+
+message SessionAck {
+  string device_id = 1;
+  string assigned_session_id = 2;
+  int32 ack_interval_frames = 3;
+  int32 health_report_interval_seconds = 4;
+}
+
+message FrameAck {
+  uint64 acked_through_sequence = 1;
+}
+
+message ConfigUpdate {
+  string config_json = 1;
+  string config_version = 2;
+}
+
+message ControlCommand {
+  ControlType type = 1;
+  string detail_json = 2;
+}
+
+enum ControlType {
+  CONTROL_TYPE_UNSPECIFIED = 0;
+  CONTROL_TYPE_REQUEST_DIAGNOSTIC = 1;
+  CONTROL_TYPE_DISABLE_DEVICE = 2;
+  CONTROL_TYPE_RESTART_STREAM = 3;
+  CONTROL_TYPE_CHANGE_ENDPOINT = 4;
+  CONTROL_TYPE_REQUEST_LOCATION_REFRESH = 5;
+  CONTROL_TYPE_UPDATE_THRESHOLD = 6;
+  CONTROL_TYPE_UPDATE_MODEL_VERSION = 7;
+}

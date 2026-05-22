@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Drone Sensor</string>
+    <string name="notification_channel_name">Drone Sensor Monitoring</string>
+    <string name="notification_channel_description">Continuous audio monitoring for drone detection</string>
+    <string name="notification_title">Drone Sensor Active</string>
+    <string name="notification_text">Monitoring audio for drone activity</string>
+
+    <string name="status_label">Status</string>
+    <string name="device_label">Device</string>
+    <string name="endpoint_label">Endpoint</string>
+    <string name="frames_sent_label">Frames Sent</string>
+    <string name="dropped_frames_label">Dropped</string>
+    <string name="reconnects_label">Reconnects</string>
+    <string name="last_ack_label">Last ACK</string>
+    <string name="last_ack_never">never</string>
+
+    <string name="state_idle">Idle</string>
+    <string name="state_connecting">Connecting</string>
+    <string name="state_streaming">Streaming</string>
+    <string name="state_reconnecting">Reconnecting</string>
+    <string name="state_error">Error</string>
+
+    <string name="grant_permissions">Grant Permissions</string>
+    <string name="start_streaming">Start</string>
+    <string name="stop_streaming">Stop</string>
+</resources>

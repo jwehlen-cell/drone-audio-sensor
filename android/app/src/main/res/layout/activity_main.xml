@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/headerStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/state_idle"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="@color/status_gray"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <View
+        android:id="@+id/statusDot"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="12dp"
+        android:background="@color/status_gray"
+        app:layout_constraintBottom_toBottomOf="@id/headerStatus"
+        app:layout_constraintStart_toEndOf="@id/headerStatus"
+        app:layout_constraintTop_toTopOf="@id/headerStatus" />
+
+    <TextView
+        android:id="@+id/labelDevice"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="@string/device_label"
+        android:textColor="@color/text_secondary"
+        app:layout_constraintTop_toBottomOf="@id/headerStatus" />
+
+    <TextView
+        android:id="@+id/valueDevice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:textColor="@color/text_primary"
+        app:layout_constraintTop_toBottomOf="@id/labelDevice"
+        tools:text="DRONE-SENSOR-001"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <TextView
+        android:id="@+id/labelEndpoint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/endpoint_label"
+        android:textColor="@color/text_secondary"
+        app:layout_constraintTop_toBottomOf="@id/valueDevice" />
+
+    <TextView
+        android:id="@+id/valueEndpoint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textColor="@color/text_primary"
+        app:layout_constraintTop_toBottomOf="@id/labelEndpoint"
+        tools:text="10.0.2.2:50051"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <LinearLayout
+        android:id="@+id/metricsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:orientation="horizontal"
+        android:weightSum="3"
+        app:layout_constraintTop_toBottomOf="@id/valueEndpoint">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/frames_sent_label"
+                android:textColor="@color/text_secondary" />
+            <TextView
+                android:id="@+id/valueFramesSent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="22sp"
+                android:textColor="@color/text_primary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/dropped_frames_label"
+                android:textColor="@color/text_secondary" />
+            <TextView
+                android:id="@+id/valueDropped"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="22sp"
+                android:textColor="@color/text_primary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/reconnects_label"
+                android:textColor="@color/text_secondary" />
+            <TextView
+                android:id="@+id/valueReconnects"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="22sp"
+                android:textColor="@color/text_primary" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/labelLastAck"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/last_ack_label"
+        android:textColor="@color/text_secondary"
+        app:layout_constraintTop_toBottomOf="@id/metricsRow" />
+
+    <TextView
+        android:id="@+id/valueLastAck"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/last_ack_never"
+        android:textSize="16sp"
+        android:textColor="@color/text_primary"
+        app:layout_constraintTop_toBottomOf="@id/labelLastAck" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonStart"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:text="@string/start_streaming"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/buttonStop" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonStop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/stop_streaming"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
