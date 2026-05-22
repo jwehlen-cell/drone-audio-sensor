@@ -1,169 +1,296 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="24dp">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/headerStatus"
+    <!-- ============================================================ -->
+    <!-- Setup container — shown until first successful cloud check-in -->
+    <!-- ============================================================ -->
+    <ScrollView
+        android:id="@+id/setupContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/state_idle"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:textColor="@color/status_gray"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <View
-        android:id="@+id/statusDot"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_marginStart="12dp"
-        android:background="@color/status_gray"
-        app:layout_constraintBottom_toBottomOf="@id/headerStatus"
-        app:layout_constraintStart_toEndOf="@id/headerStatus"
-        app:layout_constraintTop_toTopOf="@id/headerStatus" />
-
-    <TextView
-        android:id="@+id/labelDevice"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="@string/device_label"
-        android:textColor="@color/text_secondary"
-        app:layout_constraintTop_toBottomOf="@id/headerStatus" />
-
-    <TextView
-        android:id="@+id/valueDevice"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="18sp"
-        android:textColor="@color/text_primary"
-        app:layout_constraintTop_toBottomOf="@id/labelDevice"
-        tools:text="DRONE-SENSOR-001"
-        xmlns:tools="http://schemas.android.com/tools" />
-
-    <TextView
-        android:id="@+id/labelEndpoint"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/endpoint_label"
-        android:textColor="@color/text_secondary"
-        app:layout_constraintTop_toBottomOf="@id/valueDevice" />
-
-    <TextView
-        android:id="@+id/valueEndpoint"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="16sp"
-        android:textColor="@color/text_primary"
-        app:layout_constraintTop_toBottomOf="@id/labelEndpoint"
-        tools:text="10.0.2.2:50051"
-        xmlns:tools="http://schemas.android.com/tools" />
-
-    <LinearLayout
-        android:id="@+id/metricsRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:orientation="horizontal"
-        android:weightSum="3"
-        app:layout_constraintTop_toBottomOf="@id/valueEndpoint">
+        android:layout_height="match_parent"
+        android:padding="24dp"
+        android:visibility="gone">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:orientation="vertical">
+
             <TextView
+                android:id="@+id/setupTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/frames_sent_label"
-                android:textColor="@color/text_secondary" />
-            <TextView
-                android:id="@+id/valueFramesSent"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0"
-                android:textSize="22sp"
+                android:text="@string/setup_title"
+                android:textSize="28sp"
+                android:textStyle="bold"
                 android:textColor="@color/text_primary" />
-        </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/dropped_frames_label"
+                android:layout_marginTop="6dp"
+                android:text="@string/setup_subtitle"
                 android:textColor="@color/text_secondary" />
-            <TextView
-                android:id="@+id/valueDropped"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0"
-                android:textSize="22sp"
-                android:textColor="@color/text_primary" />
-        </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <View
+                        android:id="@+id/setupPhaseDot"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginEnd="10dp"
+                        android:background="@color/status_gray" />
+                    <TextView
+                        android:id="@+id/setupPhaseLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="18sp"
+                        android:textColor="@color/text_primary"
+                        tools:text="Searching for cellular" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/setupCellularLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/text_secondary"
+                    tools:text="Cellular: SIM present, no signal yet" />
+            </LinearLayout>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/reconnects_label"
+                android:layout_marginTop="28dp"
+                android:text="@string/setup_ssid_hint"
                 android:textColor="@color/text_secondary" />
-            <TextView
-                android:id="@+id/valueReconnects"
+
+            <Spinner
+                android:id="@+id/setupSsidSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/setupScanButton"
+                style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="0"
-                android:textSize="22sp"
-                android:textColor="@color/text_primary" />
+                android:layout_marginTop="8dp"
+                android:text="@string/setup_scan_button" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/setupPasswordLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="@string/setup_password_hint"
+                app:passwordToggleEnabled="true">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/setupPasswordInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPassword" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/setupJoinButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/setup_join_button" />
+
+            <TextView
+                android:id="@+id/setupResultLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textColor="@color/text_secondary"
+                tools:text="" />
         </LinearLayout>
-    </LinearLayout>
+    </ScrollView>
 
-    <TextView
-        android:id="@+id/labelLastAck"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/last_ack_label"
-        android:textColor="@color/text_secondary"
-        app:layout_constraintTop_toBottomOf="@id/metricsRow" />
-
-    <TextView
-        android:id="@+id/valueLastAck"
+    <!-- ============================================================ -->
+    <!-- Status container — shown once setup is complete              -->
+    <!-- ============================================================ -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/statusContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/last_ack_never"
-        android:textSize="16sp"
-        android:textColor="@color/text_primary"
-        app:layout_constraintTop_toBottomOf="@id/labelLastAck" />
+        android:layout_height="match_parent"
+        android:padding="24dp">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonStart"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="8dp"
-        android:text="@string/start_streaming"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/buttonStop" />
+        <TextView
+            android:id="@+id/headerStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/state_idle"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:textColor="@color/status_gray"
+            app:layout_constraintTop_toTopOf="parent" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonStop"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/stop_streaming"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <View
+            android:id="@+id/statusDot"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="12dp"
+            android:background="@color/status_gray"
+            app:layout_constraintBottom_toBottomOf="@id/headerStatus"
+            app:layout_constraintStart_toEndOf="@id/headerStatus"
+            app:layout_constraintTop_toTopOf="@id/headerStatus" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <TextView
+            android:id="@+id/labelDevice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/device_label"
+            android:textColor="@color/text_secondary"
+            app:layout_constraintTop_toBottomOf="@id/headerStatus" />
+
+        <TextView
+            android:id="@+id/valueDevice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="18sp"
+            android:textColor="@color/text_primary"
+            app:layout_constraintTop_toBottomOf="@id/labelDevice"
+            tools:text="DRONE-SENSOR-001" />
+
+        <TextView
+            android:id="@+id/labelEndpoint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/endpoint_label"
+            android:textColor="@color/text_secondary"
+            app:layout_constraintTop_toBottomOf="@id/valueDevice" />
+
+        <TextView
+            android:id="@+id/valueEndpoint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary"
+            app:layout_constraintTop_toBottomOf="@id/labelEndpoint"
+            tools:text="10.0.2.2:50051" />
+
+        <LinearLayout
+            android:id="@+id/metricsRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:orientation="horizontal"
+            android:weightSum="3"
+            app:layout_constraintTop_toBottomOf="@id/valueEndpoint">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/frames_sent_label"
+                    android:textColor="@color/text_secondary" />
+                <TextView
+                    android:id="@+id/valueFramesSent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textSize="22sp"
+                    android:textColor="@color/text_primary" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/dropped_frames_label"
+                    android:textColor="@color/text_secondary" />
+                <TextView
+                    android:id="@+id/valueDropped"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textSize="22sp"
+                    android:textColor="@color/text_primary" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/reconnects_label"
+                    android:textColor="@color/text_secondary" />
+                <TextView
+                    android:id="@+id/valueReconnects"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textSize="22sp"
+                    android:textColor="@color/text_primary" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/labelLastAck"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/last_ack_label"
+            android:textColor="@color/text_secondary"
+            app:layout_constraintTop_toBottomOf="@id/metricsRow" />
+
+        <TextView
+            android:id="@+id/valueLastAck"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/last_ack_never"
+            android:textSize="16sp"
+            android:textColor="@color/text_primary"
+            app:layout_constraintTop_toBottomOf="@id/labelLastAck" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonStart"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="@string/start_streaming"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/buttonStop" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonStop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/stop_streaming"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</FrameLayout>

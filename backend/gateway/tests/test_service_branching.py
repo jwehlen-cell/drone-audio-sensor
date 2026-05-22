@@ -25,6 +25,7 @@ from gateway.service import DroneAudioStreamServicer  # noqa: E402
 from gateway.state_machine import (  # noqa: E402
     STATE_ACTIVE,
     STATE_LOST,
+    STATE_SETUP_PENDING,
     STATE_WIPE_REQUESTED,
 )
 
@@ -67,10 +68,15 @@ class _FakeContext:
         raise StopAsyncIteration
 
 
-def _build_servicer(state: str) -> tuple[DroneAudioStreamServicer, MagicMock, MagicMock]:
+def _build_servicer(
+    state: str,
+    *,
+    complete_setup_returns: bool = True,
+) -> tuple[DroneAudioStreamServicer, MagicMock, MagicMock]:
     registry = MagicMock()
     registry.upsert_handshake = AsyncMock()
     registry.get_state = AsyncMock(return_value=state)
+    registry.complete_setup = AsyncMock(return_value=complete_setup_returns)
     registry.mark_wipe_sent = AsyncMock()
     registry.mark_disconnected = AsyncMock()
     registry.update_location = AsyncMock()
@@ -119,6 +125,38 @@ async def test_lost_device_skips_audio_publish() -> None:
     # publish is NEVER called for a lost device.
     assert store.touch.await_count == 2
     assert store.publish_frame.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_setup_pending_promotes_then_publishes_audio() -> None:
+    """First connect from a freshly-provisioned device should:
+    (1) call registry.complete_setup, (2) treat the rest of the session as
+    active (publish audio normally)."""
+    service_mod.settings.require_auth = False
+    servicer, registry, store = _build_servicer(STATE_SETUP_PENDING)
+    ctx = _FakeContext()
+    requests = _iter([_msg_handshake(), _msg_audio(seq=7)])
+    await _collect(servicer.StreamAudio(requests, ctx))
+    assert registry.complete_setup.await_count == 1
+    # After auto-promotion the session behaves as active.
+    assert store.publish_frame.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_setup_pending_idempotent_when_already_completed() -> None:
+    """If complete_setup says the device was already promoted by another
+    session (returns False), the gateway still proceeds as active."""
+    service_mod.settings.require_auth = False
+    servicer, registry, store = _build_servicer(
+        STATE_SETUP_PENDING, complete_setup_returns=False
+    )
+    ctx = _FakeContext()
+    requests = _iter([_msg_handshake(), _msg_audio(seq=1)])
+    await _collect(servicer.StreamAudio(requests, ctx))
+    assert registry.complete_setup.await_count == 1
+    # Even though promotion was a no-op (already done by a concurrent
+    # session), our local view is already active so audio publishes.
+    assert store.publish_frame.await_count == 1
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.widget.ArrayAdapter
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -16,6 +18,9 @@ import com.dronesensor.app.audio.ServiceStatus
 import com.dronesensor.app.config.AppConfig
 import com.dronesensor.app.databinding.ActivityMainBinding
 import com.dronesensor.app.identity.DeviceIdentity
+import com.dronesensor.app.setup.ConnectionPhase
+import com.dronesensor.app.setup.WifiCandidate
+import com.dronesensor.app.setup.WifiSetupHelper
 import com.dronesensor.app.stream.StreamMetrics
 import com.dronesensor.app.stream.StreamState
 import kotlinx.coroutines.flow.combine
@@ -25,6 +30,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var kiosk: KioskController
+    private lateinit var wifiSetup: WifiSetupHelper
 
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -46,9 +52,17 @@ class MainActivity : AppCompatActivity() {
         binding.buttonStop.setOnClickListener { AudioCaptureService.stop(this) }
 
         kiosk = KioskController(this)
+        // Apply kiosk *policies* (allowlist self, persistent HOME) on create —
+        // but DO NOT call startLockTask() yet. Lock task waits for first
+        // cloud check-in so the installer can still use Wi-Fi setup.
         kiosk.applyKioskPolicies()
 
-        observeStatus()
+        wifiSetup = WifiSetupHelper(this)
+        binding.setupScanButton.setOnClickListener { wifiSetup.scan() }
+        binding.setupJoinButton.setOnClickListener { onJoinClicked() }
+
+        observeServiceStatus()
+        observeSetupSignals()
     }
 
     override fun onResume() {
@@ -56,16 +70,65 @@ class MainActivity : AppCompatActivity() {
         if (!ServiceStatus.running.value) {
             ensurePermissionsThenStart()
         }
-        kiosk.enterLockTask(this)
+        renderViewMode()
     }
 
-    private fun observeStatus() {
+    /**
+     * Toggle between the setup container (pre-first-checkin) and the
+     * status container (post-first-checkin). Also gates kiosk lock task.
+     */
+    private fun renderViewMode() {
+        val setupComplete = AppConfig.get(this).setupComplete
+        if (setupComplete) {
+            binding.setupContainer.visibility = View.GONE
+            binding.statusContainer.visibility = View.VISIBLE
+            kiosk.enterLockTask(this)
+        } else {
+            binding.setupContainer.visibility = View.VISIBLE
+            binding.statusContainer.visibility = View.GONE
+            // Best-effort: if we were previously in lock task, exit so
+            // the installer can interact with the system Wi-Fi picker
+            // / our setup UI.
+            kiosk.exitLockTask(this)
+        }
+    }
+
+    private fun observeServiceStatus() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 combine(ServiceStatus.state, ServiceStatus.metrics) { state, metrics ->
                     state to metrics
                 }.collect { (state, metrics) ->
                     renderStatus(state, metrics)
+                }
+            }
+        }
+    }
+
+    private fun observeSetupSignals() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                ServiceStatus.connectionPhase.collect { phase ->
+                    renderSetupPhase(phase)
+                    if (phase == ConnectionPhase.CLOUD_AUTHENTICATED) {
+                        // setupComplete is already flipped in StreamingClient
+                        // on first SessionAck; this just makes the UI react.
+                        renderViewMode()
+                    }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                wifiSetup.scanResults.collect { renderWifiList(it) }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                wifiSetup.lastError.collect { msg ->
+                    if (!msg.isNullOrBlank()) {
+                        binding.setupResultLabel.text = getString(R.string.setup_failed, msg)
+                    }
                 }
             }
         }
@@ -92,6 +155,71 @@ class MainActivity : AppCompatActivity() {
             val ageSec = (System.currentTimeMillis() - metrics.lastAckTimestampMs) / 1000
             "${ageSec}s ago (seq ${metrics.lastAckedSequence})"
         }
+    }
+
+    private fun renderSetupPhase(phase: ConnectionPhase) {
+        binding.setupPhaseLabel.text = phase.installerLabel
+        val color = when (phase) {
+            ConnectionPhase.CLOUD_AUTHENTICATED -> Color.parseColor("#2E7D32")
+            ConnectionPhase.CLOUD_REACHABLE,
+            ConnectionPhase.WIFI_CONNECTED,
+            ConnectionPhase.CELLULAR_AVAILABLE -> Color.parseColor("#F9A825")
+            ConnectionPhase.WIFI_AVAILABLE,
+            ConnectionPhase.SEARCHING_CELLULAR -> Color.parseColor("#F9A825")
+            ConnectionPhase.NO_NETWORK,
+            ConnectionPhase.NO_SIM_NO_WIFI -> Color.parseColor("#C62828")
+        }
+        binding.setupPhaseDot.setBackgroundColor(color)
+
+        val cellularLabel = when {
+            phase == ConnectionPhase.NO_SIM_NO_WIFI -> getString(R.string.setup_no_sim)
+            phase == ConnectionPhase.SEARCHING_CELLULAR ->
+                "Cellular: SIM present, searching for signal"
+            phase == ConnectionPhase.CELLULAR_AVAILABLE ->
+                "Cellular: signal acquired"
+            else -> "Cellular: standing by"
+        }
+        binding.setupCellularLabel.text = cellularLabel
+
+        if (phase == ConnectionPhase.CLOUD_AUTHENTICATED) {
+            binding.setupResultLabel.text = getString(R.string.setup_signed_in)
+        }
+    }
+
+    private fun renderWifiList(candidates: List<WifiCandidate>) {
+        if (candidates.isEmpty()) {
+            binding.setupSsidSpinner.adapter = ArrayAdapter(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                arrayOf(getString(R.string.setup_searching)),
+            )
+            return
+        }
+        val labels = candidates.map { c ->
+            val secure = if (c.secured) "" else " (open)"
+            "${c.ssid}  [${c.rssi} dBm]$secure"
+        }
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            labels,
+        )
+        binding.setupSsidSpinner.adapter = adapter
+        binding.setupSsidSpinner.tag = candidates
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun onJoinClicked() {
+        val tag = binding.setupSsidSpinner.tag as? List<WifiCandidate>
+        val pos = binding.setupSsidSpinner.selectedItemPosition
+        val candidate = tag?.getOrNull(pos) ?: return
+        val pwd = binding.setupPasswordInput.text?.toString()
+        if (candidate.secured && pwd.isNullOrEmpty()) {
+            binding.setupResultLabel.text = getString(R.string.setup_failed, "password required")
+            return
+        }
+        binding.setupResultLabel.text = getString(R.string.setup_attempting, candidate.ssid)
+        wifiSetup.suggest(candidate.ssid, pwd?.takeIf { candidate.secured })
     }
 
     private fun ensurePermissionsThenStart() {

@@ -15,10 +15,12 @@ from gateway.state_machine import (
     STATE_ACTIVE,
     STATE_LOST,
     STATE_REVOKED,
+    STATE_SETUP_PENDING,
     STATE_WIPE_REQUESTED,
     STATE_WIPE_SENT,
     allowed_next_states,
     is_connectable,
+    is_setup_pending,
     may_publish_audio,
     normalize,
     requires_extra_confirmation,
@@ -27,6 +29,7 @@ from gateway.state_machine import (
 
 
 EXPECTED_ADMIN_MATRIX = {
+    STATE_SETUP_PENDING: {STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_ACTIVE: {STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_LOST: {STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_REVOKED: {STATE_ACTIVE},
@@ -65,12 +68,15 @@ def test_extra_confirmation_required_for_dangerous_moves() -> None:
     assert requires_extra_confirmation(STATE_REVOKED, STATE_ACTIVE)
     assert requires_extra_confirmation(STATE_ACTIVE, STATE_WIPE_REQUESTED)
     assert requires_extra_confirmation(STATE_LOST, STATE_WIPE_REQUESTED)
+    assert requires_extra_confirmation(STATE_SETUP_PENDING, STATE_WIPE_REQUESTED)
     # Mundane moves do not.
     assert not requires_extra_confirmation(STATE_ACTIVE, STATE_LOST)
     assert not requires_extra_confirmation(STATE_LOST, STATE_ACTIVE)
+    assert not requires_extra_confirmation(STATE_SETUP_PENDING, STATE_ACTIVE)
 
 
 def test_connectable_excludes_revoked_and_wipe_sent() -> None:
+    assert is_connectable(STATE_SETUP_PENDING)
     assert is_connectable(STATE_ACTIVE)
     assert is_connectable(STATE_LOST)
     assert is_connectable(STATE_WIPE_REQUESTED)  # one last connection to receive wipe
@@ -79,9 +85,18 @@ def test_connectable_excludes_revoked_and_wipe_sent() -> None:
 
 
 def test_audio_publishes_only_in_active() -> None:
+    """Setup_pending must NOT publish audio — the gateway flips it to
+    active first, and then the second iteration of the same session
+    enters the publish_audio path."""
     assert may_publish_audio(STATE_ACTIVE)
     for s in ALL_STATES - {STATE_ACTIVE}:
         assert not may_publish_audio(s)
+
+
+def test_is_setup_pending_helper() -> None:
+    assert is_setup_pending(STATE_SETUP_PENDING)
+    for s in ALL_STATES - {STATE_SETUP_PENDING}:
+        assert not is_setup_pending(s)
 
 
 def test_normalize_handles_legacy_and_unknown_values() -> None:

@@ -13,7 +13,7 @@ backend/tak_publisher/  Pub/Sub -> CoT/TAK Server bridge
 backend/admin/          FastAPI status + lifecycle admin UI (scale-to-zero Cloud Run)
 iac/terraform/          GCP infrastructure as code (services, IAM, dashboards, alerts)
 scripts/                Admin tooling (provision_device.py)
-docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY, DEVICE_LIFECYCLE, DASHBOARD)
+docs/                   Operator documentation (PROVISIONING, MDM_ENROLLMENT, RUNBOOK, SECURITY, DEVICE_LIFECYCLE, DASHBOARD, NETWORK_SETUP)
 ```
 
 ## Architecture
@@ -145,6 +145,18 @@ Added after the original five sessions:
 - **State-aware provisioning CLI** — `set-state`, `request-wipe`, `--state` filter on `list`.
 - **Tests** — `backend/gateway/tests/` exercise the transition matrix and the StreamAudio dispatch for active / lost / wipe_requested.
 
+## Post-session — network setup + connectivity watchdog
+
+Adds the deployment flow the field installers actually need:
+
+- New `setup_pending` lifecycle state. Fresh devices register in this state; gateway accepts auth but **does not publish audio** until first cloud check-in promotes the device to `active`.
+- Android setup UI: when cellular doesn't come up in ~30s, the app shows a Wi-Fi scan + join card (uses `WifiNetworkSuggestion`). Cellular monitoring continues during Wi-Fi setup — if cellular wins, Wi-Fi setup is bypassed.
+- Kiosk lock task is now **deferred** until the first successful `SessionAck`. Installers are not trapped in lock-task before configuring connectivity.
+- `ConnectivityWatchdog` reboots the phone after 5 min of no cloud auth via `DevicePolicyManager.reboot()` (Device Owner) or service-restart fallback. 10-min cooldown prevents reboot loops; `last_reboot_reason` flows back on the next handshake.
+- `DeviceHealth` proto gets `last_reboot_timestamp_ms` + `last_reboot_reason`.
+
+Details: [docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md), [docs/DEVICE_LIFECYCLE.md](docs/DEVICE_LIFECYCLE.md).
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
@@ -153,6 +165,7 @@ Added after the original five sessions:
 4. ✅ TAK/CoT publisher + Android hardening
 5. ✅ Security, kiosk mode, ops, docs
 6. ✅ Admin dashboard + device lifecycle states
+7. ✅ Network setup flow + connectivity watchdog
 
 ## What's still outside scope
 

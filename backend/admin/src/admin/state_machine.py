@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Final
 
+STATE_SETUP_PENDING: Final = "setup_pending"
 STATE_ACTIVE: Final = "active"
 STATE_LOST: Final = "lost"
 STATE_REVOKED: Final = "revoked"
@@ -13,10 +14,18 @@ STATE_WIPE_REQUESTED: Final = "wipe_requested"
 STATE_WIPE_SENT: Final = "wipe_sent"
 
 ALL_STATES: Final = frozenset(
-    {STATE_ACTIVE, STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED, STATE_WIPE_SENT}
+    {
+        STATE_SETUP_PENDING,
+        STATE_ACTIVE,
+        STATE_LOST,
+        STATE_REVOKED,
+        STATE_WIPE_REQUESTED,
+        STATE_WIPE_SENT,
+    }
 )
 
 _ADMIN_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
+    STATE_SETUP_PENDING: frozenset({STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_ACTIVE: frozenset({STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_LOST: frozenset({STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_REVOKED: frozenset({STATE_ACTIVE}),
@@ -29,6 +38,7 @@ EXTRA_CONFIRM: Final = frozenset(
         (STATE_REVOKED, STATE_ACTIVE),
         (STATE_ACTIVE, STATE_WIPE_REQUESTED),
         (STATE_LOST, STATE_WIPE_REQUESTED),
+        (STATE_SETUP_PENDING, STATE_WIPE_REQUESTED),
     }
 )
 

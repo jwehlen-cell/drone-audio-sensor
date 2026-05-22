@@ -33,11 +33,14 @@ ATAK / WinTAK clients
 
 ### Add a new device
 
-See [PROVISIONING.md](PROVISIONING.md). TL;DR:
+See [PROVISIONING.md](PROVISIONING.md) and [NETWORK_SETUP.md](NETWORK_SETUP.md). TL;DR:
 
 ```bash
 python scripts/provision_device.py register DRONE-SENSOR-042 \
     --pubkey device_042.pub.pem --site "Site B"
+# Device starts in state=setup_pending. Gateway flips it to active on
+# first successful cloud check-in. The Android app shows a Wi-Fi setup
+# screen if cellular doesn't come up in time.
 ```
 
 ### Change a device's lifecycle state
@@ -225,6 +228,8 @@ Common: malformed detection events from an experimental inference build, or a TA
 
 | Scenario | Recovery |
 |---|---|
+| Phone stuck on Wi-Fi setup screen | Verify SSID + password; check `adb logcat -s WifiSetupHelper`; watchdog will reboot the phone after 5 min of no cloud auth |
+| Phone keeps rebooting | Inspect `last_reboot_reason` on the admin Status page; cooldown is 10 min so rapid loops are bounded; investigate underlying connectivity |
 | Cloud Run service deleted | `terraform apply` recreates it; image is `ignore_changes` so re-deploy via `gcloud run deploy` |
 | Memorystore down / corrupted | Per-device state lost (TTL 5min); restart workers; new sessions repopulate naturally |
 | Firestore device collection deleted | Re-register all devices from your backup CSV / from each phone's exported public key. Without this the gateway can't authenticate. **Keep a backup of the devices collection.** |

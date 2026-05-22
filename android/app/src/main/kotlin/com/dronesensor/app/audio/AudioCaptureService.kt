@@ -20,6 +20,9 @@ import com.dronesensor.app.R
 import com.dronesensor.app.config.AppConfig
 import com.dronesensor.app.health.HealthReporter
 import com.dronesensor.app.location.LocationProvider
+import com.dronesensor.app.setup.ConnectionPhase
+import com.dronesensor.app.setup.ConnectivityMonitor
+import com.dronesensor.app.setup.ConnectivityWatchdog
 import com.dronesensor.app.stream.StreamMetrics
 import com.dronesensor.app.stream.StreamState
 import com.dronesensor.app.stream.StreamingClient
@@ -43,9 +46,12 @@ class AudioCaptureService : Service() {
     private var locationProvider: LocationProvider? = null
     private var watchdog: AudioWatchdog? = null
     private var healthReporter: HealthReporter? = null
+    private var connectivityMonitor: ConnectivityMonitor? = null
+    private var connectivityWatchdog: ConnectivityWatchdog? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var observerJob: Job? = null
     private var locationObserverJob: Job? = null
+    private var phaseObserverJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -76,11 +82,22 @@ class AudioCaptureService : Service() {
             watchdog = wd
             healthReporter = hr
 
+            val cm = ConnectivityMonitor(
+                context = this,
+                streamState = c.state,
+                firstAuthSeen = c.firstAuthSeen,
+            )
+            val cwd = ConnectivityWatchdog(this, cm.phase)
+            connectivityMonitor = cm
+            connectivityWatchdog = cwd
+
             loc.start()
             p.start()
             c.start()
             wd.start()
             hr.start()
+            cm.start()
+            cwd.start()
 
             observerJob = scope.launch {
                 combine(c.state, c.metrics) { state, metrics ->
@@ -88,6 +105,10 @@ class AudioCaptureService : Service() {
                 }.collect { (state, metrics) ->
                     ServiceStatus.update(state, metrics)
                 }
+            }
+
+            phaseObserverJob = scope.launch {
+                cm.phase.collect { ServiceStatus.updatePhase(it) }
             }
 
             locationObserverJob = scope.launch {
@@ -103,12 +124,17 @@ class AudioCaptureService : Service() {
 
     override fun onDestroy() {
         observerJob?.cancel()
+        phaseObserverJob?.cancel()
         locationObserverJob?.cancel()
+        connectivityWatchdog?.stop()
+        connectivityMonitor?.stop()
         healthReporter?.stop()
         watchdog?.stop()
         client?.stop()
         producer?.stop()
         locationProvider?.stop()
+        connectivityWatchdog = null
+        connectivityMonitor = null
         healthReporter = null
         watchdog = null
         producer = null
@@ -219,6 +245,9 @@ object ServiceStatus {
     private val _metrics = MutableStateFlow(StreamMetrics())
     val metrics: StateFlow<StreamMetrics> = _metrics.asStateFlow()
 
+    private val _connectionPhase = MutableStateFlow(ConnectionPhase.NO_NETWORK)
+    val connectionPhase: StateFlow<ConnectionPhase> = _connectionPhase.asStateFlow()
+
     internal fun setRunning(v: Boolean) {
         _running.value = v
         if (!v) {
@@ -229,5 +258,9 @@ object ServiceStatus {
     internal fun update(state: StreamState, metrics: StreamMetrics) {
         _state.value = state
         _metrics.value = metrics
+    }
+
+    internal fun updatePhase(phase: ConnectionPhase) {
+        _connectionPhase.value = phase
     }
 }

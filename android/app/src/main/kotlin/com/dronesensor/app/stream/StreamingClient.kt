@@ -71,6 +71,16 @@ class StreamingClient(
     private val _metrics = MutableStateFlow(StreamMetrics())
     val metrics: StateFlow<StreamMetrics> = _metrics.asStateFlow()
 
+    /**
+     * Flips to true the first time the gateway acknowledges this app
+     * install (SessionAck OR FrameAck — anything that proves the JWT
+     * was accepted). Used to mark setup_complete and unlock kiosk mode.
+     * Stays true for the lifetime of the process; persistence across
+     * boots lives in AppConfig.setupComplete.
+     */
+    private val _firstAuthSeen = MutableStateFlow(false)
+    val firstAuthSeen: StateFlow<Boolean> = _firstAuthSeen.asStateFlow()
+
     private val outboundExtras = Channel<ClientStreamMessage>(
         capacity = 32,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -186,12 +196,19 @@ class StreamingClient(
         when {
             command.hasSessionAck() -> {
                 Log.i(TAG, "Session ack: ${command.sessionAck.assignedSessionId}")
+                _firstAuthSeen.value = true
+                // Persist on first session ack — survives process death.
+                if (!AppConfig.get(context).setupComplete) {
+                    AppConfig.get(context).setupComplete = true
+                    Log.i(TAG, "Setup marked complete after first SessionAck")
+                }
             }
             command.hasFrameAck() -> {
                 _metrics.value = _metrics.value.copy(
                     lastAckTimestampMs = System.currentTimeMillis(),
                     lastAckedSequence = command.frameAck.ackedThroughSequence.toLong()
                 )
+                _firstAuthSeen.value = true
             }
             command.hasConfigUpdate() -> {
                 Log.i(TAG, "Config update: ${command.configUpdate.configVersion}")

@@ -97,6 +97,7 @@ thead th {
     text-transform: uppercase;
 }
 
+.state-setup_pending { background: var(--accent); color: white; }
 .state-active { background: var(--green); color: white; }
 .state-lost { background: var(--yellow); color: black; }
 .state-revoked { background: var(--gray); color: white; }

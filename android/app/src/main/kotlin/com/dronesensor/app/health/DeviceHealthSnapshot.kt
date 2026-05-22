@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.dronesensor.app.BuildConfig
+import com.dronesensor.app.config.AppConfig
 import com.dronesensor.proto.DeviceHealth
 import com.dronesensor.proto.NetworkType
 import com.dronesensor.proto.ThermalState
@@ -24,6 +25,7 @@ object DeviceHealthSnapshot {
         microphoneActive: Boolean
     ): DeviceHealth {
         val battery = batteryStatus(context)
+        val config = AppConfig.get(context)
         return DeviceHealth.newBuilder()
             .setBatteryPercent(battery.percent)
             .setCharging(battery.charging)
@@ -34,6 +36,8 @@ object DeviceHealthSnapshot {
             .setThermalState(thermalState(context))
             .setQueueDepth(queueDepth)
             .setMicrophoneActive(microphoneActive)
+            .setLastRebootTimestampMs(config.lastRebootMs)
+            .setLastRebootReason(config.lastRebootReason)
             .build()
     }
 

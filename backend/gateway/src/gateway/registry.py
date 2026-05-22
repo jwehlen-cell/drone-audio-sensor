@@ -8,7 +8,12 @@ import structlog
 from google.cloud import firestore
 
 from .config import settings
-from .state_machine import STATE_ACTIVE, STATE_WIPE_SENT, normalize
+from .state_machine import (
+    STATE_ACTIVE,
+    STATE_SETUP_PENDING,
+    STATE_WIPE_SENT,
+    normalize,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -155,6 +160,38 @@ class DeviceRegistry:
     async def get_state(self, device_id: str) -> str | None:
         lookup = await self.lookup(device_id)
         return lookup.state if lookup else None
+
+    async def complete_setup(self, device_id: str, *, session_id: str) -> bool:
+        """If the device is still setup_pending, atomically flip to active.
+
+        Returns True iff this call did the flip — i.e. it was the first
+        successful check-in from a freshly-provisioned device. Idempotent:
+        a no-op if the device is already in any other state.
+        """
+        doc = self._collection.document(device_id)
+
+        @firestore.async_transactional
+        async def _txn(txn: firestore.AsyncTransaction) -> bool:
+            snap = await doc.get(transaction=txn)
+            if not snap.exists:
+                return False
+            data = snap.to_dict() or {}
+            current = normalize(data.get("state") or data.get("status"))
+            if current != STATE_SETUP_PENDING:
+                return False
+            txn.set(
+                doc,
+                {
+                    "state": STATE_ACTIVE,
+                    "setup_completed_at_ms": int(time.time() * 1000),
+                    "setup_completed_session_id": session_id,
+                },
+                merge=True,
+            )
+            return True
+
+        txn = self._client.transaction()
+        return await _txn(txn)
 
     async def mark_wipe_sent(self, device_id: str, *, session_id: str) -> None:
         await self._collection.document(device_id).set(

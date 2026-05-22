@@ -17,6 +17,7 @@ from .state import DeviceState, DeviceStateStore
 from .state_machine import (
     STATE_ACTIVE,
     STATE_LOST,
+    STATE_SETUP_PENDING,
     STATE_WIPE_REQUESTED,
     may_publish_audio,
     normalize,
@@ -140,6 +141,24 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
         # wipe command.
         device_state = normalize(await self._registry.get_state(device_id))
         bound = bound.bind(device_state=device_state)
+
+        # First successful check-in from a freshly-provisioned device flips
+        # the lifecycle state to active so the phone (and admin UI) can
+        # exit setup_pending. complete_setup is idempotent: if a concurrent
+        # session already promoted the device, the transaction inside
+        # returns False but we still treat this session as active locally —
+        # any concurrent admin transition (revoke, wipe_requested) will be
+        # picked up on the next reconnect.
+        if device_state == STATE_SETUP_PENDING:
+            promoted = await self._registry.complete_setup(
+                device_id, session_id=session_id
+            )
+            device_state = STATE_ACTIVE
+            bound = bound.bind(device_state=STATE_ACTIVE)
+            if promoted:
+                bound.info("setup_completed")
+            else:
+                bound.info("setup_already_completed_by_other_session")
 
         latitude = handshake.location.latitude if handshake.HasField("location") else None
         longitude = handshake.location.longitude if handshake.HasField("location") else None

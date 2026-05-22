@@ -76,6 +76,11 @@ message DeviceHealth {
   ThermalState thermal_state = 7;
   int32 queue_depth = 8;
   bool microphone_active = 9;
+  // Filled in by the watchdog after a connectivity-loss reboot so the
+  // admin dashboard can see the previous reboot reason on the next
+  // successful check-in.
+  int64 last_reboot_timestamp_ms = 10;
+  string last_reboot_reason = 11;
 }
 
 enum NetworkType {

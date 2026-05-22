@@ -15,6 +15,7 @@ canonical state lives in the device's Firestore document at
 
 | state            | Connectable? | Audio forwarded? | Notes |
 |------------------|--------------|------------------|-------|
+| `setup_pending`  | yes          | **no**           | Freshly registered device. Phone is allowed to authenticate (so it can check in), but audio is held until first cloud check-in promotes the device to `active`. Kiosk lock is NOT engaged on the phone in this state — the installer can still join Starlink Wi-Fi. |
 | `active`         | yes          | yes              | Normal device. |
 | `lost`           | yes          | **no**           | Phone is missing or otherwise can't be trusted to broadcast audio. Health + location keep flowing so the device can still be tracked. |
 | `revoked`        | no           | n/a              | Gateway refuses the JWT outright (see SECURITY.md). |
@@ -26,6 +27,7 @@ canonical state lives in the device's Firestore document at
 Admin-driven (via the UI or `provision_device.py set-state`):
 
 ```
+setup_pending     -> { active, revoked, wipe_requested }   ── force-promote
 active            -> { lost, revoked, wipe_requested }
 lost              -> { active, revoked, wipe_requested }
 revoked           -> { active }                 ── extra confirmation required
@@ -36,6 +38,7 @@ wipe_sent         -> { }                        ── terminal
 Gateway-internal:
 
 ```
+setup_pending     -> active                     ── on first successful auth/handshake
 wipe_requested    -> wipe_sent                  ── after a successful wipe dispatch
 ```
 
@@ -44,6 +47,7 @@ Transitions requiring **extra confirmation** in the admin UI / CLI:
 - `revoked` → `active` (re-enabling a previously revoked device)
 - `active` → `wipe_requested` (irreversible factory reset)
 - `lost` → `wipe_requested` (same)
+- `setup_pending` → `wipe_requested` (same)
 
 ## Behavior at the gateway
 
@@ -53,16 +57,20 @@ When a device connects, the gateway:
    `revoked` and `wipe_sent` devices fail this step (the registry's
    `get_public_key` returns `None` for them) → `UNAUTHENTICATED`.
 2. Reads the lifecycle state via `registry.get_state(device_id)`.
-3. **If `wipe_requested`:** dispatches a single
+3. **If `setup_pending`:** runs `complete_setup()` (Firestore txn) which
+   flips the state to `active` and records `setup_completed_at_ms` +
+   `setup_completed_session_id`. The rest of the session continues
+   as if the device were active — audio publishes normally.
+4. **If `wipe_requested`:** dispatches a single
    `ServerCommand(control = ControlCommand(type=CONTROL_TYPE_WIPE_DEVICE))`
    on the stream, atomically transitions Firestore to `wipe_sent`,
    stamps `wipe_sent_at_ms` and `last_wipe_session_id`, and closes the
    stream. The next connect from that device will be rejected at auth.
-4. **If `lost`:** accepts handshake, health, and location updates, but
+5. **If `lost`:** accepts handshake, health, and location updates, but
    never calls `state.publish_frame()`. The device shows up on the
    admin status page as connected (yellow if recently lost, red if
    stale).
-5. **If `active`:** normal pipeline.
+6. **If `active`:** normal pipeline.
 
 The admin Firestore writes go through a **transaction** so a user
 clicking "wipe" at the same moment the gateway is processing a

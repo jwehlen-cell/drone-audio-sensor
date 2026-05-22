@@ -24,4 +24,18 @@
     <string name="grant_permissions">Grant Permissions</string>
     <string name="start_streaming">Start</string>
     <string name="stop_streaming">Stop</string>
+
+    <string name="setup_title">Network setup</string>
+    <string name="setup_subtitle">Waiting for cellular. If this site has no cellular, join the Starlink Wi-Fi below.</string>
+    <string name="setup_cellular_label">Cellular</string>
+    <string name="setup_scan_button">Scan Wi-Fi</string>
+    <string name="setup_ssid_hint">Network name (SSID)</string>
+    <string name="setup_password_hint">Wi-Fi password</string>
+    <string name="setup_join_button">Join Wi-Fi</string>
+    <string name="setup_cancel_button">Cancel</string>
+    <string name="setup_signed_in">Cloud check-in succeeded. Switching to active mode…</string>
+    <string name="setup_searching">Searching networks…</string>
+    <string name="setup_attempting">Connecting to %s…</string>
+    <string name="setup_failed">Couldn\'t connect: %s</string>
+    <string name="setup_no_sim">No SIM card detected — use Wi-Fi to connect.</string>
 </resources>

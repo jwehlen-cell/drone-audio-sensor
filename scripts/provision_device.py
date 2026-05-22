@@ -35,6 +35,7 @@ from google.cloud import firestore
 # Vendored here so this script has no path dependency on the services.
 # ---------------------------------------------------------------------------
 
+STATE_SETUP_PENDING = "setup_pending"
 STATE_ACTIVE = "active"
 STATE_LOST = "lost"
 STATE_REVOKED = "revoked"
@@ -42,6 +43,7 @@ STATE_WIPE_REQUESTED = "wipe_requested"
 STATE_WIPE_SENT = "wipe_sent"
 
 ALL_STATES = {
+    STATE_SETUP_PENDING,
     STATE_ACTIVE,
     STATE_LOST,
     STATE_REVOKED,
@@ -50,6 +52,7 @@ ALL_STATES = {
 }
 
 _ADMIN_TRANSITIONS: dict[str, set[str]] = {
+    STATE_SETUP_PENDING: {STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_ACTIVE: {STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_LOST: {STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED},
     STATE_REVOKED: {STATE_ACTIVE},
@@ -61,6 +64,7 @@ EXTRA_CONFIRM = {
     (STATE_REVOKED, STATE_ACTIVE),
     (STATE_ACTIVE, STATE_WIPE_REQUESTED),
     (STATE_LOST, STATE_WIPE_REQUESTED),
+    (STATE_SETUP_PENDING, STATE_WIPE_REQUESTED),
 }
 
 
@@ -144,9 +148,12 @@ def register(
     }
     if not snap.exists:
         payload["first_seen_ms"] = now
-        payload["state"] = STATE_ACTIVE
+        # Newly registered devices start in setup_pending. The gateway
+        # auto-promotes them to active the first time they successfully
+        # complete a cloud check-in.
+        payload["state"] = STATE_SETUP_PENDING
     doc.set(payload, merge=True)
-    click.echo(f"Registered {device_id} (site={site or '-'})")
+    click.echo(f"Registered {device_id} (site={site or '-'}) — state=setup_pending")
 
 
 @cli.command(name="set-state")

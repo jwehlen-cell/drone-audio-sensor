@@ -1,9 +1,14 @@
 """Device lifecycle state machine.
 
-Five states make up the device lifecycle. The same definitions are
+Six states make up the device lifecycle. The same definitions are
 referenced by the gateway (to enforce behavior on each stream) and by
 the admin service (to validate user-driven transitions).
 
+  setup_pending    - fresh device; allowed to authenticate but audio is
+                     NOT published yet; kiosk lock must not be engaged
+                     on the phone side until the first successful cloud
+                     check-in. The gateway auto-promotes the device to
+                     active as soon as its handshake succeeds.
   active           - normal device; streams audio + health + location
   lost             - location-only; gateway accepts handshake/health/
                      location but never publishes audio frames
@@ -13,6 +18,7 @@ the admin service (to validate user-driven transitions).
 
 Transitions allowed FROM the admin UI / CLI (i.e. user-initiated):
 
+  setup_pending    -> {active, revoked, wipe_requested}    # force-promote
   active           -> {lost, revoked, wipe_requested}
   lost             -> {active, revoked, wipe_requested}
   revoked          -> {active}                # requires extra confirmation
@@ -21,6 +27,7 @@ Transitions allowed FROM the admin UI / CLI (i.e. user-initiated):
 
 Transitions allowed from the gateway (internal only):
 
+  setup_pending    -> active                  # after first successful auth
   wipe_requested   -> wipe_sent               # after sending the wipe command
 """
 
@@ -29,6 +36,7 @@ from __future__ import annotations
 from typing import Final
 
 # Canonical state strings stored in Firestore `devices/{id}.state`.
+STATE_SETUP_PENDING: Final = "setup_pending"
 STATE_ACTIVE: Final = "active"
 STATE_LOST: Final = "lost"
 STATE_REVOKED: Final = "revoked"
@@ -36,12 +44,21 @@ STATE_WIPE_REQUESTED: Final = "wipe_requested"
 STATE_WIPE_SENT: Final = "wipe_sent"
 
 ALL_STATES: Final = frozenset(
-    {STATE_ACTIVE, STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED, STATE_WIPE_SENT}
+    {
+        STATE_SETUP_PENDING,
+        STATE_ACTIVE,
+        STATE_LOST,
+        STATE_REVOKED,
+        STATE_WIPE_REQUESTED,
+        STATE_WIPE_SENT,
+    }
 )
 
-# Admin-driven transitions. wipe_requested -> wipe_sent is intentionally
-# NOT in this map because only the gateway is allowed to make that flip.
+# Admin-driven transitions. wipe_requested -> wipe_sent and
+# setup_pending -> active are intentionally NOT in this map because the
+# gateway is allowed to make those flips internally too.
 _ADMIN_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
+    STATE_SETUP_PENDING: frozenset({STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_ACTIVE: frozenset({STATE_LOST, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_LOST: frozenset({STATE_ACTIVE, STATE_REVOKED, STATE_WIPE_REQUESTED}),
     STATE_REVOKED: frozenset({STATE_ACTIVE}),
@@ -57,15 +74,22 @@ EXTRA_CONFIRM: Final = frozenset(
         (STATE_REVOKED, STATE_ACTIVE),
         (STATE_ACTIVE, STATE_WIPE_REQUESTED),
         (STATE_LOST, STATE_WIPE_REQUESTED),
+        (STATE_SETUP_PENDING, STATE_WIPE_REQUESTED),
     }
 )
 
 # States in which a device may open a gRPC session at all.
+# setup_pending is connectable so the device can complete its first
+# cloud check-in. wipe_requested is connectable for one session so the
+# gateway can deliver the wipe command.
 CONNECTABLE_STATES: Final = frozenset(
-    {STATE_ACTIVE, STATE_LOST, STATE_WIPE_REQUESTED}
+    {STATE_SETUP_PENDING, STATE_ACTIVE, STATE_LOST, STATE_WIPE_REQUESTED}
 )
 
 # States in which the gateway should publish audio frames to Redis.
+# setup_pending excludes audio publish — that ensures a device that
+# managed to authenticate but somehow never auto-promotes can't flood
+# the inference pipeline.
 PUBLISH_AUDIO_STATES: Final = frozenset({STATE_ACTIVE})
 
 # Terminal states that the admin UI must never let the user move out of.
@@ -92,6 +116,10 @@ def normalize(state: str | None) -> str:
     if s == "offline":
         return STATE_ACTIVE
     return STATE_ACTIVE
+
+
+def is_setup_pending(state: str) -> bool:
+    return normalize(state) == STATE_SETUP_PENDING
 
 
 def allowed_next_states(current: str) -> frozenset[str]:
