@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +27,22 @@ log = structlog.get_logger(__name__)
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+class SimulatedPhone(BaseModel):
+    device_id: str
+    lat: float
+    lon: float
+    site_label: str = ""
+    battery_percent: int = Field(default=90, ge=0, le=100)
+    network_type: str = "wifi"
+
+
+class SimulatedPhonesRequest(BaseModel):
+    phones: list[SimulatedPhone]
+    timestamp_ms: int | None = None
+    ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    tick: int = Field(default=1, ge=0)
 
 
 def _resolve_user(request: Request) -> str:
@@ -312,6 +329,42 @@ def build_app() -> FastAPI:
                 for d in rows
             ]
         )
+
+    @app.post("/api/simulate/phones")
+    async def api_simulate_phones(
+        payload: SimulatedPhonesRequest,
+        request: Request,
+        user: str = Depends(_resolve_user),
+        fs: FirestoreRepo = Depends(fs_dep),
+        r: RedisRepo = Depends(redis_dep),
+    ) -> Any:
+        if not settings.simulator_enabled:
+            raise HTTPException(404, "simulator endpoint disabled")
+        if settings.simulator_token:
+            supplied = request.headers.get("X-SOH-Simulator-Token", "")
+            if supplied != settings.simulator_token:
+                raise HTTPException(403, "invalid simulator token")
+        if len(payload.phones) > 100:
+            raise HTTPException(400, "too many simulated phones")
+
+        import time
+
+        timestamp_ms = payload.timestamp_ms or int(time.time() * 1000)
+        phones = [p.model_dump() for p in payload.phones]
+        await fs.upsert_simulated_devices(phones, timestamp_ms=timestamp_ms)
+        await r.refresh_simulated_devices(
+            phones,
+            timestamp_ms=timestamp_ms,
+            ttl_seconds=payload.ttl_seconds,
+            tick=payload.tick,
+        )
+        log.info(
+            "simulated_phones_refreshed",
+            user=user,
+            count=len(phones),
+            ttl_seconds=payload.ttl_seconds,
+        )
+        return {"refreshed": len(phones), "timestamp_ms": timestamp_ms}
 
     @app.get("/livez")
     async def livez() -> dict:

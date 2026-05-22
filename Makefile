@@ -11,14 +11,19 @@ GCLOUD_FLAGS := \
 	--region=$(REGION) \
 	--substitutions=_TAG=$(TAG)
 
+ADMIN_IMAGE := us-central1-docker.pkg.dev/$(PROJECT_ID)/drone-sensor-images-dev/admin:$(TAG)
+TF_DIR      := iac/terraform
+
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  make deploy-admin          Build + push + deploy backend/admin"
-	@echo "  make deploy-gateway        Build + push + deploy backend/gateway"
-	@echo "  make deploy-inference      Build + push + deploy backend/inference"
-	@echo "  make deploy-tak-publisher  Build + push + deploy backend/tak_publisher"
+	@echo "  make build-admin           Build + push admin image to Artifact Registry"
+	@echo "  make deploy-admin          build-admin + terraform apply (admin only)"
+	@echo "  make deploy-gateway        Build + push + Cloud Run deploy backend/gateway"
+	@echo "  make deploy-inference      Build + push + Cloud Run deploy backend/inference"
+	@echo "  make deploy-tak-publisher  Build + push + Cloud Run deploy backend/tak_publisher"
 	@echo "  make deploy-all            All four in sequence"
+	@echo "  make show                  Show live URLs + image tags for all four services"
 	@echo ""
 	@echo "Variables (override on the make command line):"
 	@echo "  PROJECT_ID  default $(PROJECT_ID)"
@@ -26,10 +31,19 @@ help:
 	@echo "  TAG         default short git sha = $(TAG)"
 	@echo ""
 	@echo "Cloud Build does all the work in GCP — no local Docker required."
+	@echo ""
+	@echo "Admin uses Terraform-managed deploy (no ignore_changes), so the"
+	@echo "deploy step calls 'terraform apply -var admin_image=...' after"
+	@echo "the Cloud Build push. The other services use the per-yaml deploy"
+	@echo "step because their Cloud Run resources have ignore_changes on image."
+
+.PHONY: build-admin
+build-admin:
+	gcloud builds submit . $(GCLOUD_FLAGS) --config=cloudbuild/admin.yaml
 
 .PHONY: deploy-admin
-deploy-admin:
-	gcloud builds submit . $(GCLOUD_FLAGS) --config=cloudbuild/admin.yaml
+deploy-admin: build-admin
+	cd $(TF_DIR) && terraform apply -auto-approve -var admin_image=$(ADMIN_IMAGE)
 
 .PHONY: deploy-gateway
 deploy-gateway:

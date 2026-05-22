@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # require the X-Goog-Authenticated-User-Email header.
     require_auth: bool = False
 
+    # R&D-only simulator endpoint. When enabled, a local laptop script can
+    # POST fake phone state to the admin URL; the Cloud Run service writes
+    # Firestore + private Redis from inside the VPC connector.
+    simulator_enabled: bool = False
+    simulator_token: str = ""
+
     log_level: str = "INFO"
     structured_logs: bool = True
     cloud_logging: bool = False

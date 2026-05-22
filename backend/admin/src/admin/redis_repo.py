@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 
 import redis.asyncio as redis_async
@@ -48,6 +49,39 @@ class RedisRepo:
             rows.append(_to_live(data))
         rows.sort(key=lambda r: r.device_id)
         return rows
+
+    async def refresh_simulated_devices(
+        self,
+        phones: list[dict],
+        *,
+        timestamp_ms: int,
+        ttl_seconds: int,
+        tick: int,
+    ) -> None:
+        pipe = self._client.pipeline(transaction=False)
+        for n, phone in enumerate(phones, start=1):
+            device_id = str(phone["device_id"])
+            site_label = str(phone.get("site_label") or "")
+            state = {
+                "device_id": device_id,
+                "session_id": f"sim-{uuid.uuid4().hex[:12]}",
+                "last_seen_ms": timestamp_ms,
+                "last_sequence": tick,
+                "frames_received": tick,
+                "dropped_frames": 0,
+                "reconnect_count": max(0, tick - 1),
+                "app_version": "sim-soh-1.0",
+                "network_type": str(phone.get("network_type") or "wifi"),
+                "battery_percent": int(phone.get("battery_percent") or max(35, 96 - n)),
+                "thermal_state": "nominal",
+                "site_label": site_label,
+            }
+            pipe.set(
+                f"{settings.device_state_key_prefix}{device_id}",
+                json.dumps(state),
+                ex=ttl_seconds,
+            )
+        await pipe.execute()
 
     async def close(self) -> None:
         await self._client.aclose()

@@ -1,12 +1,15 @@
 # Cloud Build config for the admin web UI.
 #
-# Invoked from the repo root via `make deploy-admin` (see top-level Makefile).
-# All image work happens in Cloud Build — nothing builds on the developer
-# machine. The Cloud Run service is deployed against ignore_changes(image),
-# so this gcloud run deploy step is what actually rolls a new revision.
+# Build + push only. The admin Cloud Run service does NOT have
+# ignore_changes on its image (rapid R&D iteration), so Terraform owns
+# the deploy. The flow is:
+#
+#   1. `make build-admin` runs this config → pushes :<sha> and :latest
+#      to Artifact Registry.
+#   2. `make deploy-admin` calls (1) and then `terraform apply` with
+#      `admin_image` pinned to :<sha> so Terraform rolls a new Cloud
+#      Run revision.
 substitutions:
-  _SERVICE:     drone-sensor-dev-admin
-  _REGION:      us-central1
   _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
   _TAG:         latest
 
@@ -32,17 +35,6 @@ steps:
       - push
       - --all-tags
       - ${_REPO}/admin
-
-  - id: deploy
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - ${_SERVICE}
-      - --image=${_REPO}/admin:${_TAG}
-      - --region=${_REGION}
-      - --quiet
 
 images:
   - ${_REPO}/admin:${_TAG}

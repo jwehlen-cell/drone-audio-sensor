@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Keep fake phones visible on the SOH dashboard without streaming audio.
 
-This writes the same Firestore device docs and Redis live-state keys that the
-admin/SOH page reads. It does not connect to the gateway and it does not add
-audio frames to the Redis stream, so it avoids the inference path entirely.
+In the normal laptop mode, this posts fake phone state to the SOH/admin
+Cloud Run URL. The admin service writes Firestore and private Redis from inside
+the VPC connector. It does not connect to the gateway and it does not add audio
+frames to the Redis stream, so it avoids the inference path entirely.
 
 Requires:
     pip install -r scripts/requirements.txt
     gcloud auth application-default login
     export GOOGLE_CLOUD_PROJECT=<your-project>
 
-Memorystore has a private IP, so run this from a network that can reach Redis
-(for example VPN/bastion into the VPC, or a small VM in the VPC).
+The direct Redis mode is still available for VPC-connected shells.
 """
 
 from __future__ import annotations
@@ -24,12 +24,27 @@ import sys
 import time
 import uuid
 from dataclasses import asdict, dataclass
+from urllib import request as urlrequest
+from urllib.error import HTTPError, URLError
 
 
 DEFAULT_BASE_LAT = 38.8977
 DEFAULT_BASE_LON = -77.0365
 DEFAULT_INTERVAL_SECONDS = 180
 DEFAULT_REDIS_TTL_SECONDS = 300
+
+DEFAULT_PHONE_FIXTURES = (
+    ("DRONE-SENSOR-001", 26.670000, -80.031900, "Simulated Beachline South"),
+    ("DRONE-SENSOR-002", 26.672000, -80.031700, "Simulated Beachline"),
+    ("DRONE-SENSOR-003", 26.674000, -80.031500, "Simulated Beachline"),
+    ("DRONE-SENSOR-004", 26.676000, -80.031300, "Simulated Beachline"),
+    ("DRONE-SENSOR-005", 26.678000, -80.031100, "Simulated Beachline"),
+    ("DRONE-SENSOR-006", 26.680000, -80.030900, "Simulated Beachline"),
+    ("DRONE-SENSOR-007", 26.682000, -80.030700, "Simulated Beachline"),
+    ("DRONE-SENSOR-008", 26.684000, -80.030500, "Simulated Beachline"),
+    ("DRONE-SENSOR-009", 26.686000, -80.030300, "Simulated Beachline"),
+    ("DRONE-SENSOR-010", 26.688000, -80.030100, "Simulated Beachline North"),
+)
 
 
 @dataclass
@@ -55,7 +70,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
     parser.add_argument("--firestore-database", default="(default)")
     parser.add_argument("--collection", default="devices")
-    parser.add_argument("--redis-host", required=True)
+    parser.add_argument(
+        "--admin-url",
+        help="SOH/admin Cloud Run URL. Laptop mode posts simulated phones to this URL.",
+    )
+    parser.add_argument(
+        "--simulator-token",
+        default=os.environ.get("SOH_SIMULATOR_TOKEN", ""),
+        help="Optional token sent as X-SOH-Simulator-Token.",
+    )
+    parser.add_argument("--redis-host")
     parser.add_argument("--redis-port", type=int, default=6379)
     parser.add_argument("--redis-db", type=int, default=0)
     parser.add_argument("--count", type=int, default=10)
@@ -66,9 +90,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-lat", type=float, default=DEFAULT_BASE_LAT)
     parser.add_argument("--base-lon", type=float, default=DEFAULT_BASE_LON)
     parser.add_argument(
+        "--generic",
+        action="store_true",
+        help="Use generated FAKE-SOH-PHONE IDs instead of the default DRONE-SENSOR fixtures.",
+    )
+    parser.add_argument(
         "--once",
         action="store_true",
         help="Write one refresh and exit instead of looping.",
+    )
+    parser.add_argument(
+        "--register-only",
+        action="store_true",
+        help="Write Firestore registration/location docs and exit without touching Redis.",
     )
     return parser.parse_args()
 
@@ -88,22 +122,29 @@ def location(base_lat: float, base_lon: float, n: int) -> tuple[float, float]:
     return base_lat + row * 0.004, base_lon + col * 0.004
 
 
+def phone_fixtures(args: argparse.Namespace) -> list[tuple[str, float, float, str]]:
+    if not args.generic:
+        return list(DEFAULT_PHONE_FIXTURES[: args.count])
+    return [
+        (
+            device_id(args.prefix, n),
+            *location(args.base_lat, args.base_lon, n),
+            args.site,
+        )
+        for n in range(1, args.count + 1)
+    ]
+
+
 def upsert_firestore_devices(
     db,
     geo_point,
     *,
     collection: str,
-    count: int,
-    prefix: str,
-    site: str,
-    base_lat: float,
-    base_lon: float,
+    phones: list[tuple[str, float, float, str]],
     timestamp_ms: int,
 ) -> None:
     batch = db.batch()
-    for n in range(1, count + 1):
-        did = device_id(prefix, n)
-        lat, lon = location(base_lat, base_lon, n)
+    for did, lat, lon, site in phones:
         doc = db.collection(collection).document(did)
         batch.set(
             doc,
@@ -131,16 +172,13 @@ def upsert_firestore_devices(
 def refresh_redis(
     client,
     *,
-    count: int,
-    prefix: str,
-    site: str,
+    phones: list[tuple[str, float, float, str]],
     timestamp_ms: int,
     ttl_seconds: int,
     tick: int,
 ) -> None:
     pipe = client.pipeline(transaction=False)
-    for n in range(1, count + 1):
-        did = device_id(prefix, n)
+    for n, (did, _lat, _lon, site) in enumerate(phones, start=1):
         state = LiveDeviceState(
             device_id=did,
             session_id=f"sim-{uuid.uuid4().hex[:12]}",
@@ -159,6 +197,54 @@ def refresh_redis(
     pipe.execute()
 
 
+def post_to_admin_url(
+    *,
+    admin_url: str,
+    token: str,
+    phones: list[tuple[str, float, float, str]],
+    timestamp_ms: int,
+    ttl_seconds: int,
+    tick: int,
+) -> None:
+    endpoint = admin_url.rstrip("/") + "/api/simulate/phones"
+    payload = {
+        "timestamp_ms": timestamp_ms,
+        "ttl_seconds": ttl_seconds,
+        "tick": tick,
+        "phones": [
+            {
+                "device_id": did,
+                "lat": lat,
+                "lon": lon,
+                "site_label": site,
+                "battery_percent": max(35, 96 - n),
+                "network_type": "wifi",
+            }
+            for n, (did, lat, lon, site) in enumerate(phones, start=1)
+        ],
+    }
+    req = urlrequest.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "drone-soh-local-simulator/1.0",
+        },
+    )
+    if token:
+        req.add_header("X-SOH-Simulator-Token", token)
+    try:
+        with urlrequest.urlopen(req, timeout=30) as resp:
+            if resp.status < 200 or resp.status >= 300:
+                raise RuntimeError(f"admin API returned HTTP {resp.status}")
+    except HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"admin API returned HTTP {e.code}: {detail}") from e
+    except URLError as e:
+        raise RuntimeError(f"failed to reach admin API: {e}") from e
+
+
 def main() -> int:
     args = parse_args()
     if not args.project:
@@ -167,16 +253,75 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if not args.register_only and not args.admin_url and not args.redis_host:
+        print(
+            "Missing --admin-url or --redis-host. Pass --register-only to write Firestore docs only.",
+            file=sys.stderr,
+        )
+        return 2
 
-    import redis
+    phones = phone_fixtures(args)
+
+    if args.admin_url:
+        stop = False
+
+        def _stop(_signum: int, _frame: object) -> None:
+            nonlocal stop
+            stop = True
+
+        signal.signal(signal.SIGINT, _stop)
+        signal.signal(signal.SIGTERM, _stop)
+
+        tick = 0
+        while not stop:
+            tick += 1
+            ts = now_ms()
+            post_to_admin_url(
+                admin_url=args.admin_url,
+                token=args.simulator_token,
+                phones=phones,
+                timestamp_ms=ts,
+                ttl_seconds=args.redis_ttl_seconds,
+                tick=tick,
+            )
+            print(
+                f"posted {len(phones)} fake phones to {args.admin_url} at {ts}; "
+                f"next refresh in {args.interval_seconds}s",
+                flush=True,
+            )
+            if args.once:
+                break
+            for _ in range(args.interval_seconds):
+                if stop:
+                    break
+                time.sleep(1)
+        return 0
+
     from google.cloud import firestore
 
     db = firestore.Client(project=args.project, database=args.firestore_database)
+
+    if args.register_only:
+        ts = now_ms()
+        upsert_firestore_devices(
+            db,
+            collection=args.collection,
+            geo_point=firestore.GeoPoint,
+            phones=phones,
+            timestamp_ms=ts,
+        )
+        print(f"registered {len(phones)} fake phones at {ts}", flush=True)
+        return 0
+
+    import redis
+
     redis_client = redis.Redis(
         host=args.redis_host,
         port=args.redis_port,
         db=args.redis_db,
         decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5,
     )
     redis_client.ping()
 
@@ -197,24 +342,18 @@ def main() -> int:
             db,
             collection=args.collection,
             geo_point=firestore.GeoPoint,
-            count=args.count,
-            prefix=args.prefix,
-            site=args.site,
-            base_lat=args.base_lat,
-            base_lon=args.base_lon,
+            phones=phones,
             timestamp_ms=ts,
         )
         refresh_redis(
             redis_client,
-            count=args.count,
-            prefix=args.prefix,
-            site=args.site,
+            phones=phones,
             timestamp_ms=ts,
             ttl_seconds=args.redis_ttl_seconds,
             tick=tick,
         )
         print(
-            f"refreshed {args.count} fake phones at {ts}; "
+            f"refreshed {len(phones)} fake phones at {ts}; "
             f"next refresh in {args.interval_seconds}s",
             flush=True,
         )

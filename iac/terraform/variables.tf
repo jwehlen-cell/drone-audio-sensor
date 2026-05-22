@@ -170,6 +170,19 @@ variable "admin_allow_unauthenticated_invocations" {
   default     = true
 }
 
+variable "admin_simulator_enabled" {
+  description = "Enable the R&D-only admin API that lets a local laptop simulator refresh fake phone state through the admin URL."
+  type        = bool
+  default     = false
+}
+
+variable "admin_simulator_token" {
+  description = "Optional shared token required in X-SOH-Simulator-Token when admin_simulator_enabled is true. Leave empty only for R&D."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "redis_tier" {
   description = "Memorystore tier (BASIC for R&D, STANDARD_HA for production)."
   type        = string

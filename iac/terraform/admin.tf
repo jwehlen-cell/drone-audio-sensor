@@ -109,6 +109,14 @@ resource "google_cloud_run_v2_service" "admin" {
         name  = "ADMIN_REQUIRE_AUTH"
         value = tostring(!var.admin_allow_unauthenticated_invocations)
       }
+      env {
+        name  = "ADMIN_SIMULATOR_ENABLED"
+        value = tostring(var.admin_simulator_enabled)
+      }
+      env {
+        name  = "ADMIN_SIMULATOR_TOKEN"
+        value = var.admin_simulator_token
+      }
     }
   }
 

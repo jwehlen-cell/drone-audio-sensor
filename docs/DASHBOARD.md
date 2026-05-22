@@ -127,7 +127,32 @@ policies are documented in [RUNBOOK.md](RUNBOOK.md).
 
 ## Local SOH simulator
 
-For dashboard testing without streaming audio through the gateway, run:
+For dashboard testing without streaming audio through the gateway, run
+the simulator on a laptop and point it at the SOH/admin URL. The laptop
+does not need private Redis access; it calls the admin service, and the
+admin service writes Redis from inside the VPC connector.
+
+Enable the R&D simulator endpoint on the admin service:
+
+```bash
+terraform -chdir=iac/terraform apply -auto-approve \
+  -var project_id=drone-audio-sensor \
+  -var admin_simulator_enabled=true
+```
+
+Then run the simulator locally:
+
+```bash
+python scripts/simulate_soh_phones.py \
+  --project drone-audio-sensor \
+  --admin-url "$(terraform -chdir=iac/terraform output -raw admin_url)" \
+  --interval-seconds 180
+```
+
+Each refresh POSTs the ten simulated phone locations to
+`/api/simulate/phones`; the admin service updates Firestore and Redis.
+
+For one-off Firestore registration without live Redis state:
 
 ```bash
 pip install -r scripts/requirements.txt
@@ -136,13 +161,12 @@ export GOOGLE_CLOUD_PROJECT=drone-audio-sensor
 
 python scripts/simulate_soh_phones.py \
   --project drone-audio-sensor \
-  --redis-host "$(terraform -chdir=iac/terraform output -raw redis_host)" \
-  --count 10 \
-  --interval-seconds 180
+  --register-only
 ```
 
-The simulator writes `devices/{id}` documents in Firestore and refreshes
-`device:{id}` keys in Redis every three minutes. It does not connect to
-the gateway, publish audio frames, or trigger inference. Memorystore is
-private, so the machine running the script must be able to reach the VPC
-Redis IP.
+By default the simulator uses the ten Beachline devices
+`DRONE-SENSOR-001` through `DRONE-SENSOR-010` with their configured
+coordinates and site labels. It writes `devices/{id}` documents in
+Firestore and refreshes `device:{id}` keys in Redis every three minutes.
+It does not connect to the gateway, publish audio frames, or trigger
+inference.
