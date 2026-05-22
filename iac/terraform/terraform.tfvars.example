@@ -1,0 +1,18 @@
+project_id  = "your-gcp-project-id"
+region      = "us-central1"
+zone        = "us-central1-a"
+environment = "dev"
+
+# Once the image is pushed to Artifact Registry, set this to e.g.
+# "us-central1-docker.pkg.dev/your-gcp-project-id/drone-sensor-images-dev/gateway:0.1.0"
+gateway_image = ""
+
+# R&D defaults: 1 always-on instance, scale up to 5
+gateway_min_instances = 1
+gateway_max_instances = 5
+gateway_cpu           = "2"
+gateway_memory        = "2Gi"
+
+# BASIC tier is single-node, no HA — fine for R&D, swap to STANDARD_HA for prod.
+redis_tier      = "BASIC"
+redis_memory_gb = 1

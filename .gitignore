@@ -22,12 +22,22 @@ android/gradle/wrapper/gradle-wrapper.jar
 android/gradlew
 android/gradlew.bat
 
-# Python (for future backend work)
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
+backend/gateway/proto_gen/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
 
 # Logs
 *.log

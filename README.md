@@ -5,11 +5,13 @@ Android + Google Cloud system for continuous drone audio detection using YAMNet,
 ## Repository layout
 
 ```
-proto/      Shared gRPC/protobuf contract (Android, backend, TAK publisher)
-android/    Dedicated-device sensor app
+proto/             Shared gRPC/protobuf contract (Android, backend, TAK publisher)
+android/           Dedicated-device sensor app
+backend/gateway/   Python asyncio gRPC gateway service
+iac/terraform/     GCP infrastructure as code
 ```
 
-Future sessions will add `backend/` (gateway + inference + TAK publisher) and `iac/` (Terraform).
+Future sessions will add `backend/inference/` and `backend/tak_publisher/`.
 
 ## Session 1 — Phone-side streaming core
 
@@ -39,10 +41,20 @@ gradle wrapper                       # first time only, if no gradlew present
 
 The default endpoint is `10.0.2.2:50051` (Android emulator → host machine), plaintext. Override via `BuildConfig` constants in `app/build.gradle.kts` or programmatically via `AppConfig.endpoint`. TLS support is wired but disabled by default for R&D.
 
+## Session 2 — Cloud gateway + Terraform skeleton
+
+Delivered:
+
+- `backend/gateway/` — Python asyncio gRPC server: validates handshake, persists device registration to Firestore, tracks hot state in Redis, emits FrameAcks every N frames, handles disconnect cleanup
+- `backend/gateway/Dockerfile` — multi-stage build that generates Python proto stubs in-image
+- `iac/terraform/` — VPC + connector + Memorystore + Firestore + Pub/Sub + Secret Manager + Artifact Registry + service accounts + Cloud Run v2 gateway service with h2c port and persistent stream timeouts
+
+See [iac/terraform/README.md](iac/terraform/README.md) for the deploy walkthrough.
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
-2. Cloud gateway + Terraform skeleton
+2. ✅ Cloud gateway + Terraform skeleton
 3. YAMNet inference worker
 4. TAK/CoT publisher + Android hardening
 5. Security, kiosk mode, ops, docs
