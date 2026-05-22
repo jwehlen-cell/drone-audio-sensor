@@ -160,6 +160,15 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
                         sequence=int(frame.sequence_number),
                         frames_received=frames_received,
                     )
+                    await self._state.publish_frame(
+                        device_id=device_id,
+                        session_id=session_id,
+                        sequence=int(frame.sequence_number),
+                        capture_timestamp_ms=int(frame.capture_timestamp_ms),
+                        sample_rate_hz=int(frame.sample_rate_hz),
+                        pcm16_mono=frame.pcm16_mono,
+                        site_label=handshake.assigned_site_label,
+                    )
                     if (
                         int(frame.sequence_number) - last_acked_seq
                         >= settings.ack_interval_frames

@@ -24,8 +24,13 @@ output "artifact_registry_repo" {
 }
 
 output "detections_topic" {
-  description = "Pub/Sub topic for confirmed drone detections (consumed in Session 4)."
+  description = "Pub/Sub topic for confirmed drone detections."
   value       = google_pubsub_topic.detections.id
+}
+
+output "inference_service_name" {
+  description = "Cloud Run service name for the inference worker pool."
+  value       = google_cloud_run_v2_service.inference.name
 }
 
 output "device_secret_name" {

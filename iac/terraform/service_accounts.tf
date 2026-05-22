@@ -25,6 +25,37 @@ resource "google_project_iam_member" "gateway_firestore_user" {
   member  = "serviceAccount:${google_service_account.gateway.email}"
 }
 
+resource "google_project_iam_member" "inference_firestore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.inference.email}"
+}
+
+resource "google_project_iam_member" "inference_logging_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.inference.email}"
+}
+
+resource "google_project_iam_member" "inference_metrics_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.inference.email}"
+}
+
+resource "google_pubsub_topic_iam_member" "inference_pubsub_publisher" {
+  topic  = google_pubsub_topic.detections.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.inference.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "inference_image_reader" {
+  location   = google_artifact_registry_repository.images.location
+  repository = google_artifact_registry_repository.images.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.inference.email}"
+}
+
 resource "google_project_iam_member" "gateway_logging_writer" {
   project = var.project_id
   role    = "roles/logging.logWriter"

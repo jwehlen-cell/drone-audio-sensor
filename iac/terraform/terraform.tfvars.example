@@ -13,6 +13,15 @@ gateway_max_instances = 5
 gateway_cpu           = "2"
 gateway_memory        = "2Gi"
 
+# Inference workers (YAMNet on CPU). 4 vCPU handles ~50 frames/sec.
+inference_image                      = ""
+inference_min_instances              = 1
+inference_max_instances              = 4
+inference_cpu                        = "4"
+inference_memory                     = "4Gi"
+inference_detection_threshold        = 0.5
+inference_suppression_window_seconds = 60
+
 # BASIC tier is single-node, no HA — fine for R&D, swap to STANDARD_HA for prod.
 redis_tier      = "BASIC"
 redis_memory_gb = 1

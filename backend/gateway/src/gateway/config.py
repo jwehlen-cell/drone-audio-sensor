@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     pubsub_detections_topic: str = ""
 
+    frame_stream_key: str = "audio_frames"
+    frame_stream_maxlen: int = 3000
+
     ack_interval_frames: int = 10
     health_report_interval_seconds: int = 30
     session_idle_timeout_seconds: int = 90

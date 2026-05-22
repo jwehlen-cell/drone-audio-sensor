@@ -93,5 +93,31 @@ class DeviceStateStore:
     async def clear(self, device_id: str) -> None:
         await self._client.delete(self._key(device_id))
 
+    async def publish_frame(
+        self,
+        *,
+        device_id: str,
+        session_id: str,
+        sequence: int,
+        capture_timestamp_ms: int,
+        sample_rate_hz: int,
+        pcm16_mono: bytes,
+        site_label: str,
+    ) -> None:
+        await self._client.xadd(
+            settings.frame_stream_key,
+            {
+                "d": device_id,
+                "ses": session_id,
+                "s": str(sequence),
+                "t": str(capture_timestamp_ms),
+                "r": str(sample_rate_hz),
+                "l": site_label,
+                "p": pcm16_mono,
+            },
+            maxlen=settings.frame_stream_maxlen,
+            approximate=True,
+        )
+
     async def close(self) -> None:
         await self._client.aclose()

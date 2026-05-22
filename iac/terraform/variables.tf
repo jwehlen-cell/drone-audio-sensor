@@ -68,6 +68,48 @@ variable "gateway_request_timeout_seconds" {
   default     = 3600
 }
 
+variable "inference_image" {
+  description = "Container image for the inference worker (e.g. <region>-docker.pkg.dev/<project>/<repo>/inference:<tag>)."
+  type        = string
+  default     = ""
+}
+
+variable "inference_min_instances" {
+  description = "Cloud Run min instance count for inference workers. Keep > 0 so the consumer loop runs continuously."
+  type        = number
+  default     = 1
+}
+
+variable "inference_max_instances" {
+  description = "Cloud Run max instance count for inference workers."
+  type        = number
+  default     = 4
+}
+
+variable "inference_cpu" {
+  description = "vCPU per inference instance. YAMNet inference is CPU-bound; 4 vCPU handles ~50 frames/sec."
+  type        = string
+  default     = "4"
+}
+
+variable "inference_memory" {
+  description = "Memory per inference instance (TF needs headroom)."
+  type        = string
+  default     = "4Gi"
+}
+
+variable "inference_detection_threshold" {
+  description = "Drone-class probability threshold for detection trigger."
+  type        = number
+  default     = 0.5
+}
+
+variable "inference_suppression_window_seconds" {
+  description = "Seconds to suppress further detections from a device after one fires."
+  type        = number
+  default     = 60
+}
+
 variable "redis_tier" {
   description = "Memorystore tier (BASIC for R&D, STANDARD_HA for production)."
   type        = string

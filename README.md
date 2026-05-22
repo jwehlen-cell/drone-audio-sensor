@@ -5,13 +5,14 @@ Android + Google Cloud system for continuous drone audio detection using YAMNet,
 ## Repository layout
 
 ```
-proto/             Shared gRPC/protobuf contract (Android, backend, TAK publisher)
-android/           Dedicated-device sensor app
-backend/gateway/   Python asyncio gRPC gateway service
-iac/terraform/     GCP infrastructure as code
+proto/              Shared gRPC/protobuf contract (Android, backend, TAK publisher)
+android/            Dedicated-device sensor app
+backend/gateway/    Python asyncio gRPC gateway service
+backend/inference/  YAMNet inference worker pool
+iac/terraform/      GCP infrastructure as code
 ```
 
-Future sessions will add `backend/inference/` and `backend/tak_publisher/`.
+Future sessions will add `backend/tak_publisher/`.
 
 ## Session 1 — Phone-side streaming core
 
@@ -51,10 +52,20 @@ Delivered:
 
 See [iac/terraform/README.md](iac/terraform/README.md) for the deploy walkthrough.
 
+## Session 3 — YAMNet inference worker
+
+Delivered:
+
+- Gateway now publishes each `AudioFrame` to a Redis Stream (`audio_frames`) with a configurable maxlen
+- `backend/inference/` — long-running worker consuming the stream via a consumer group, running YAMNet (TF Hub `yamnet/1`) on each 1-second clip, maintaining a per-device score ring buffer, applying a K-of-N + average smoothing rule, and publishing confirmed detections to the existing Pub/Sub topic
+- Suppression window prevents alert storms from a single device
+- Detection event JSON includes device location (looked up from Firestore), per-class scores, and model identification
+- Cloud Run service for inference workers with HTTP/2 health probes, VPC egress to Memorystore, internal-only ingress
+
 ## Session roadmap
 
 1. ✅ Proto + Android streaming core
 2. ✅ Cloud gateway + Terraform skeleton
-3. YAMNet inference worker
+3. ✅ YAMNet inference worker
 4. TAK/CoT publisher + Android hardening
 5. Security, kiosk mode, ops, docs
