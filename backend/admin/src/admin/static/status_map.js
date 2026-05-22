@@ -12,11 +12,31 @@
             cb();
             return;
         }
+        var fallbackStarted = false;
+        function loadFallback() {
+            if (typeof L !== "undefined") {
+                cb();
+                return;
+            }
+            if (fallbackStarted) return;
+            fallbackStarted = true;
+            var css = document.createElement("link");
+            css.rel = "stylesheet";
+            css.href = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css";
+            document.head.appendChild(css);
+
+            var script = document.createElement("script");
+            script.src = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js";
+            script.onload = function () { if (typeof L !== "undefined") cb(); };
+            script.onerror = function () { showMapError("Map library failed to load."); };
+            document.head.appendChild(script);
+        }
         // Leaflet is loaded with `defer` — fall back to a tick.
         document.addEventListener("DOMContentLoaded", function () {
             if (typeof L !== "undefined") cb();
-            else setTimeout(function () { if (typeof L !== "undefined") cb(); }, 100);
+            else setTimeout(loadFallback, 250);
         });
+        setTimeout(loadFallback, 1500);
     }
 
     whenLeafletReady(function () {
@@ -128,5 +148,16 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    }
+
+    function showMapError(message) {
+        var mapEl = document.getElementById("status-map");
+        if (!mapEl) return;
+        mapEl.innerHTML = "";
+        var div = document.createElement("div");
+        div.style.padding = "16px";
+        div.style.color = "#c62828";
+        div.textContent = message;
+        mapEl.appendChild(div);
     }
 })();

@@ -20,7 +20,7 @@
                 <th>State</th>
                 <th>Site</th>
                 <th>Public key</th>
-                <th>Last seen (ms)</th>
+                <th>Last seen (UTC)</th>
                 <th>Wipe</th>
                 <th>Actions</th>
             </tr>
@@ -39,7 +39,7 @@
                         <span class="warn">none registered</span>
                     {% endif %}
                 </td>
-                <td>{{ d.last_seen_ms or '—' }}</td>
+                <td>{{ d.last_seen_ms | utc_ms }}</td>
                 <td>
                     {% if d.wipe_sent_at_ms %}
                         <span class="state state-wipe_sent">sent · {{ d.wipe_sent_at_ms }}</span>

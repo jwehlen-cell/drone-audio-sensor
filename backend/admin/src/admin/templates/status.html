@@ -2,8 +2,7 @@
 {% block title %}Status — Drone Sensor Admin{% endblock %}
 {% block content %}
 
-<!-- Leaflet (OpenStreetMap) — no API key, low traffic.
-     Loaded from unpkg with SRI hashes so a CDN mishap can't inject JS. -->
+<!-- Leaflet (OpenStreetMap) — no API key, low traffic. -->
 <link rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -16,7 +15,7 @@
 <section class="map-and-table">
     <div class="map-pane">
         <h2>Map</h2>
-        <div id="status-map" role="application" aria-label="Phone and detection locations"></div>
+        <div id="status-map" style="width: 100%; min-height: 460px; height: 460px;" role="application" aria-label="Phone and detection locations"></div>
         <div class="map-legend">
             <span class="map-legend-item"><span class="dot dot-active"></span> active</span>
             <span class="map-legend-item"><span class="dot dot-lost"></span> lost</span>

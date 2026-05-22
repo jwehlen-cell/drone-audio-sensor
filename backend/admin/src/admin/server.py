@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ log = structlog.get_logger(__name__)
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+TEMPLATES.env.filters["utc_ms"] = lambda v: _format_utc_ms(v)
 
 
 class SimulatedPhone(BaseModel):
@@ -385,3 +387,14 @@ def _freshness(last_seen_ms: int) -> float | None:
     if not last_seen_ms:
         return None
     return max(0.0, time.time() - (last_seen_ms / 1000))
+
+
+def _format_utc_ms(value: int | None) -> str:
+    if not value:
+        return "—"
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+    except (TypeError, ValueError, OSError):
+        return "—"
