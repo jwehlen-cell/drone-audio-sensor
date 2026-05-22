@@ -131,7 +131,7 @@ Delivered:
 - **Admin provisioning CLI** — `scripts/provision_device.py` registers / revokes / lists / inspects devices in Firestore.
 - **Device Owner + kiosk** — `DeviceOwnerReceiver` + `KioskController` add lock-task mode, persistent HOME, keyguard disable when the app is set as device owner. Manifest and device-admin XML policies registered.
 - **Comprehensive monitoring** — Six alert policies (5xx, p95 latency, instance saturation, Redis memory, Pub/Sub backlog, DLQ presence) + a six-tile dashboard via `google_monitoring_dashboard`.
-- **Operator docs** — [`docs/PROVISIONING.md`](docs/PROVISIONING.md) · [`docs/MDM_ENROLLMENT.md`](docs/MDM_ENROLLMENT.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) · [`docs/SECURITY.md`](docs/SECURITY.md)
+- **Operator docs** — [`docs/PROVISIONING.md`](docs/PROVISIONING.md) · [`docs/MDM_ENROLLMENT.md`](docs/MDM_ENROLLMENT.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/DASHBOARD.md`](docs/DASHBOARD.md)
 
 ## Session roadmap
 
