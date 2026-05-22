@@ -2,56 +2,77 @@
 {% block title %}Status — Drone Sensor Admin{% endblock %}
 {% block content %}
 
-<section>
-    <h2>Currently connected phones</h2>
-    {% if not live_devices %}
-        <p class="empty">No phones are currently streaming.</p>
-    {% else %}
-    <table>
-        <thead>
-            <tr>
-                <th>Device</th>
-                <th>State</th>
-                <th>Site</th>
-                <th>Freshness</th>
-                <th>Last seen</th>
-                <th>Frames / dropped / reconnects</th>
-                <th>Battery</th>
-                <th>Network</th>
-                <th>Latest location</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in live_devices %}
-            {% set l = row.live %}
-            {% set r = row.registered %}
-            {% set fresh = row.freshness_seconds %}
-            <tr class="dot {% if fresh is none %}fresh-red{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-red{% endif %}">
-                <td><code>{{ l.device_id }}</code></td>
-                <td>
-                    {% if r %}
-                        <span class="state state-{{ r.state }}">{{ r.state }}</span>
-                    {% else %}
-                        <span class="state state-unknown">unregistered</span>
-                    {% endif %}
-                </td>
-                <td>{{ l.site_label or '—' }}</td>
-                <td>{% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}</td>
-                <td>{{ l.last_seen_ms or '—' }}</td>
-                <td>{{ l.frames_received }} / {{ l.dropped_frames }} / {{ l.reconnect_count }}</td>
-                <td>{{ l.battery_percent }}%</td>
-                <td>{{ l.network_type }}</td>
-                <td>
-                    {% if r and r.location_lat is not none %}
-                        {{ "%.5f" | format(r.location_lat) }}, {{ "%.5f" | format(r.location_lon) }}
-                        {% if r.location_accuracy_m %}± {{ "%.0f" | format(r.location_accuracy_m) }} m{% endif %}
-                    {% else %}—{% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% endif %}
+<!-- Leaflet (OpenStreetMap) — no API key, low traffic.
+     Loaded from unpkg with SRI hashes so a CDN mishap can't inject JS. -->
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="" />
+<script defer
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+
+<section class="map-and-table">
+    <div class="map-pane">
+        <h2>Map</h2>
+        <div id="status-map" role="application" aria-label="Phone and detection locations"></div>
+        <div class="map-legend">
+            <span class="map-legend-item"><span class="dot dot-active"></span> active</span>
+            <span class="map-legend-item"><span class="dot dot-lost"></span> lost</span>
+            <span class="map-legend-item"><span class="dot dot-setup_pending"></span> setup_pending</span>
+            <span class="map-legend-item"><span class="dot dot-revoked"></span> revoked</span>
+            <span class="map-legend-item"><span class="dot dot-detection"></span> detection (last hour)</span>
+            <span class="map-legend-item muted">stale &gt; {{ stale_offline_seconds }}s = greyed</span>
+        </div>
+    </div>
+
+    <div class="table-pane">
+        <h2>Currently connected phones</h2>
+        {% if not live_devices %}
+            <p class="empty">No phones are currently streaming.</p>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Device</th>
+                    <th>State</th>
+                    <th>Site</th>
+                    <th>Freshness</th>
+                    <th>Battery</th>
+                    <th>Network</th>
+                    <th>Latest location</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in live_devices %}
+                {% set l = row.live %}
+                {% set r = row.registered %}
+                {% set fresh = row.freshness_seconds %}
+                <tr class="dot {% if fresh is none %}fresh-red{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-red{% endif %}">
+                    <td><code>{{ l.device_id }}</code></td>
+                    <td>
+                        {% if r %}
+                            <span class="state state-{{ r.state }}">{{ r.state }}</span>
+                        {% else %}
+                            <span class="state state-unknown">unregistered</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ l.site_label or '—' }}</td>
+                    <td>{% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}</td>
+                    <td>{{ l.battery_percent }}%</td>
+                    <td>{{ l.network_type }}</td>
+                    <td>
+                        {% if r and r.location_lat is not none %}
+                            {{ "%.5f" | format(r.location_lat) }}, {{ "%.5f" | format(r.location_lon) }}
+                        {% else %}—{% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
 </section>
 
 <section>
@@ -89,5 +110,8 @@
     </table>
     {% endif %}
 </section>
+
+<script id="status-map-data" type="application/json">{{ map_data | tojson }}</script>
+<script src="{{ url_for('static', path='status_map.js') }}" defer></script>
 
 {% endblock %}

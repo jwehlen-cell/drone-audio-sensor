@@ -10,7 +10,7 @@ Jinja2 templates ship in the container.
 
 | URL | Purpose |
 |---|---|
-| `/` | **Status page.** Live device states pulled from Redis (`device:{id}` keys), joined to each device's Firestore registration. Below that, the last hour of detection events from the `detections` collection. |
+| `/` | **Status page.** Live device states pulled from Redis (`device:{id}` keys), joined to each device's Firestore registration. Now also includes a Leaflet/OpenStreetMap panel that pins every phone with a known location (colored by state) and every recent detection (red). Below that, the last hour of detection events from the `detections` collection. |
 | `/registered` | **Registered phones page.** Every device document, with per-row buttons that drive lifecycle transitions (`active` / `lost` / `revoked` / `wipe_requested`). |
 | `/api/connected` | JSON of currently-live device states (Redis SCAN). |
 | `/api/registered` | JSON of every registered device with state, site, last-seen, key fingerprint, latest location. Never returns the full PEM. |
@@ -78,6 +78,9 @@ New `detections/{detection_id}` documents look like:
   most ~hourly volume and storage is bounded.
 - Heartbeats and per-frame device state stay in Redis — we explicitly
   do *not* write every heartbeat to Firestore.
+- The status map uses Leaflet + OpenStreetMap tiles. No API key, no
+  paid maps service. Tiles are loaded directly from the public OSM
+  CDN; volume is admin-only so we stay well inside their usage policy.
 
 ## Auth
 

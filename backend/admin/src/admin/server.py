@@ -95,6 +95,43 @@ def build_app() -> FastAPI:
                     "freshness_seconds": _freshness(l.last_seen_ms),
                 }
             )
+        # Pre-bake the map payload here so the template stays JSON-ignorant.
+        # Only devices that have a known location end up on the map.
+        map_phones = []
+        for row in joined:
+            registered = row["registered"]
+            if registered is None or registered.location_lat is None:
+                continue
+            map_phones.append(
+                {
+                    "device_id": registered.device_id,
+                    "lat": registered.location_lat,
+                    "lon": registered.location_lon,
+                    "state": registered.state,
+                    "site": registered.site_label or "",
+                    "freshness_seconds": row["freshness_seconds"],
+                    "last_seen_ms": row["live"].last_seen_ms,
+                    "battery_percent": row["live"].battery_percent,
+                    "network_type": row["live"].network_type,
+                }
+            )
+        map_detections = []
+        for d in detections:
+            if d.location_lat is None:
+                continue
+            map_detections.append(
+                {
+                    "detection_id": d.detection_id,
+                    "device_id": d.device_id,
+                    "lat": d.location_lat,
+                    "lon": d.location_lon,
+                    "average_score": d.average_score,
+                    "peak_score": d.peak_score,
+                    "site": d.site_label or "",
+                    "published_at_ms": d.published_at_ms,
+                }
+            )
+
         return TEMPLATES.TemplateResponse(
             "status.html",
             {
@@ -104,6 +141,12 @@ def build_app() -> FastAPI:
                 "detections": detections,
                 "stale_warning_seconds": settings.stale_warning_seconds,
                 "stale_offline_seconds": settings.stale_offline_seconds,
+                "map_data": {
+                    "phones": map_phones,
+                    "detections": map_detections,
+                    "stale_warning_seconds": settings.stale_warning_seconds,
+                    "stale_offline_seconds": settings.stale_offline_seconds,
+                },
             },
         )
 

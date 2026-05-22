@@ -146,3 +146,81 @@ thead th {
 .muted { color: var(--muted); }
 .warn { color: var(--yellow); }
 .empty { color: var(--muted); font-style: italic; }
+
+/* --- Map + table side-by-side layout (status page) --- */
+.map-and-table {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+    gap: 24px;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .map-and-table {
+        grid-template-columns: 1fr;
+    }
+}
+
+.map-pane h2,
+.table-pane h2 {
+    margin-top: 0;
+}
+
+#status-map {
+    width: 100%;
+    height: 460px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #111;
+}
+
+/* Make Leaflet popups blend with the dark theme. */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+.leaflet-popup-content {
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 8px 12px;
+}
+.leaflet-popup-content code {
+    background: rgba(255,255,255,0.06);
+}
+.leaflet-container a.leaflet-popup-close-button {
+    color: var(--text);
+}
+.leaflet-control-attribution {
+    background: rgba(0,0,0,0.4) !important;
+    color: var(--muted) !important;
+}
+.leaflet-control-attribution a {
+    color: var(--accent) !important;
+}
+
+.map-legend {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--text-secondary, var(--muted));
+}
+
+.map-legend .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    border: 1px solid #ffffff44;
+    vertical-align: middle;
+}
+
+.map-legend .dot-active        { background: #2e7d32; }
+.map-legend .dot-lost          { background: #b59100; }
+.map-legend .dot-setup_pending { background: #1f6feb; }
+.map-legend .dot-revoked       { background: #4b5560; }
+.map-legend .dot-detection     { background: #ff5252; }
