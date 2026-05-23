@@ -147,6 +147,14 @@ thead th {
 .warn { color: var(--yellow); }
 .empty { color: var(--muted); font-style: italic; }
 
+.refresh-bar {
+    margin: -4px 0 16px 0;
+    font-size: 12px;
+}
+.refresh-bar a {
+    margin-left: 4px;
+}
+
 /* --- Map + table side-by-side layout (status page) --- */
 .map-and-table {
     display: grid;

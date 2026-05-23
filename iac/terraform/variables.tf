@@ -170,6 +170,12 @@ variable "admin_allow_unauthenticated_invocations" {
   default     = true
 }
 
+variable "admin_status_refresh_seconds" {
+  description = "Auto-refresh interval (seconds) for the SOH status page. 0 disables. Honored by the meta-refresh tag; an operator can also override per-tab with ?refresh=off."
+  type        = number
+  default     = 30
+}
+
 variable "admin_simulator_enabled" {
   description = "Enable the R&D-only admin API that lets a local laptop simulator refresh fake phone state through the admin URL."
   type        = bool

@@ -2,6 +2,10 @@
 {% block title %}Status — Drone Sensor Admin{% endblock %}
 {% block content %}
 
+{% if refresh_seconds and refresh_seconds > 0 %}
+<meta http-equiv="refresh" content="{{ refresh_seconds }}">
+{% endif %}
+
 <!-- Leaflet (OpenStreetMap) — no API key, low traffic. -->
 <link rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -11,6 +15,16 @@
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""></script>
+
+<div class="refresh-bar muted">
+    Rendered {{ rendered_at_ms | utc_ms }} UTC
+    {% if refresh_seconds and refresh_seconds > 0 %}
+      · auto-refresh every {{ refresh_seconds }}s
+      · <a href="?refresh=off">pause</a>
+    {% else %}
+      · auto-refresh disabled · <a href="?refresh=30">resume (30s)</a>
+    {% endif %}
+</div>
 
 <section class="map-and-table">
     <div class="map-pane">

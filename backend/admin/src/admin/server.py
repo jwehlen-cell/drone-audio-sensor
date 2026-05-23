@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -173,6 +174,19 @@ def build_app() -> FastAPI:
                 }
             )
 
+        # Auto-refresh interval: honor a `?refresh=` query override so an
+        # operator can pause refreshes while inspecting a detection without
+        # editing config. `refresh=off` (or 0) disables.
+        refresh_param = request.query_params.get("refresh")
+        if refresh_param is not None:
+            try:
+                refresh_seconds = 0 if refresh_param.lower() in {"off", "0", "false", "no"} \
+                    else max(0, int(refresh_param))
+            except ValueError:
+                refresh_seconds = settings.status_refresh_seconds
+        else:
+            refresh_seconds = settings.status_refresh_seconds
+
         return TEMPLATES.TemplateResponse(
             "status.html",
             {
@@ -182,6 +196,8 @@ def build_app() -> FastAPI:
                 "detections": detections,
                 "stale_warning_seconds": settings.stale_warning_seconds,
                 "stale_offline_seconds": settings.stale_offline_seconds,
+                "refresh_seconds": refresh_seconds,
+                "rendered_at_ms": int(time.time() * 1000),
                 "map_data": {
                     "phones": map_phones,
                     "detections": map_detections,

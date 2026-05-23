@@ -117,6 +117,10 @@ resource "google_cloud_run_v2_service" "admin" {
         name  = "ADMIN_SIMULATOR_TOKEN"
         value = var.admin_simulator_token
       }
+      env {
+        name  = "ADMIN_STATUS_REFRESH_SECONDS"
+        value = tostring(var.admin_status_refresh_seconds)
+      }
     }
   }
 

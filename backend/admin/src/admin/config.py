@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     simulator_enabled: bool = False
     simulator_token: str = ""
 
+    # How often the status page meta-refreshes itself (seconds). Set to 0
+    # to disable auto-refresh entirely. Defaults to 30s so dashboards stay
+    # current without a noticeable flicker between refreshes.
+    status_refresh_seconds: int = 30
+
     log_level: str = "INFO"
     structured_logs: bool = True
     cloud_logging: bool = False
