@@ -35,16 +35,16 @@ DEFAULT_INTERVAL_SECONDS = 180
 DEFAULT_REDIS_TTL_SECONDS = 300
 
 DEFAULT_PHONE_FIXTURES = (
-    ("DRONE-SENSOR-001", 26.670000, -80.035700, "Simulated Beachline South"),
-    ("DRONE-SENSOR-002", 26.672000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-003", 26.674000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-004", 26.676000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-005", 26.678000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-006", 26.680000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-007", 26.682000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-008", 26.684000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-009", 26.686000, -80.035700, "Simulated Beachline"),
-    ("DRONE-SENSOR-010", 26.688000, -80.035700, "Simulated Beachline North"),
+    ("DRONE-SENSOR-001", 26.6755, -80.0380, "Southern boundary intersection"),
+    ("DRONE-SENSOR-002", 26.6762, -80.0365, "Approaching Beach Club southern edge"),
+    ("DRONE-SENSOR-003", 26.6771, -80.0360, "East of main house / Tunnel link"),
+    ("DRONE-SENSOR-004", 26.6783, -80.0358, "Northern property line"),
+    ("DRONE-SENSOR-005", 26.6792, -80.0360, "Transitioning to northern neighbor"),
+    ("DRONE-SENSOR-006", 26.6805, -80.0367, "Roadway curving sharply west"),
+    ("DRONE-SENSOR-007", 26.6815, -80.0378, "Mid-curve baseline"),
+    ("DRONE-SENSOR-008", 26.6823, -80.0388, "Northern approach buffer"),
+    ("DRONE-SENSOR-009", 26.6828, -80.0395, "Outer northern perimeter"),
+    ("DRONE-SENSOR-010", 26.6832, -80.0400, "Array termination point"),
 )
 
 
