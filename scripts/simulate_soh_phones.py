@@ -12,15 +12,25 @@ Requires:
     export GOOGLE_CLOUD_PROJECT=<your-project>
 
 The direct Redis mode is still available for VPC-connected shells.
+
+Optional `--audio-burst` flag: in addition to the heartbeat, each cycle one
+random phone streams 5 seconds of synthetic drone-propeller buzz to the
+gateway while the other phones stream low-amplitude white noise. This drives
+the trained YAMNet+ERAU classifier and produces a single detection per cycle
+on the dashboard. Requires `--gateway-url`. Heartbeat behavior is unchanged.
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
+import random
 import signal
+import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -33,6 +43,11 @@ DEFAULT_BASE_LAT = 38.8977
 DEFAULT_BASE_LON = -77.0365
 DEFAULT_INTERVAL_SECONDS = 180
 DEFAULT_REDIS_TTL_SECONDS = 300
+
+AUDIO_BURST_SAMPLE_RATE = 16_000
+AUDIO_BURST_FRAME_SECONDS = 1
+AUDIO_BURST_DEFAULT_FRAMES = 5  # five 1-second frames -> 5 seconds of audio
+PROTO_FILE = Path(__file__).resolve().parent.parent / "proto" / "drone_audio.proto"
 
 DEFAULT_PHONE_FIXTURES = (
     ("DRONE-SENSOR-001", 26.6755, -80.0380, "Southern boundary intersection"),
@@ -115,6 +130,30 @@ def parse_args() -> argparse.Namespace:
         "--register-only",
         action="store_true",
         help="Write Firestore registration/location docs and exit without touching Redis.",
+    )
+    parser.add_argument(
+        "--audio-burst",
+        action="store_true",
+        help=(
+            "Each cycle, stream 5 seconds of synthetic audio per phone to the gateway. "
+            "One random phone sends drone-propeller buzz; the rest send low-amplitude "
+            "white noise. Requires --gateway-url."
+        ),
+    )
+    parser.add_argument(
+        "--gateway-url",
+        default=os.environ.get("DRONE_SENSOR_GATEWAY_URL", ""),
+        help=(
+            "Public gRPC URL of the gateway, e.g. "
+            "drone-sensor-dev-gateway-65av54lbuq-uc.a.run.app or full https://...; "
+            "used only when --audio-burst is set."
+        ),
+    )
+    parser.add_argument(
+        "--audio-burst-seconds",
+        type=int,
+        default=AUDIO_BURST_DEFAULT_FRAMES,
+        help="Number of 1-second frames each phone streams per cycle (default 5).",
     )
     return parser.parse_args()
 
@@ -294,6 +333,204 @@ def post_to_admin_url(
         raise RuntimeError(f"failed to reach admin API: {e}") from e
 
 
+# ---------------------------------------------------------------------------
+# --audio-burst: stream synthetic PCM16 frames at the gateway each cycle.
+# Heartbeat-only mode never imports these — keep imports lazy inside the
+# helpers so the default path stays light.
+# ---------------------------------------------------------------------------
+
+
+def _ensure_pb_stubs() -> Path:
+    """Generate drone_audio_pb2 / _pb2_grpc into a temp dir and put it on
+    sys.path. Idempotent across runs in the same shell."""
+    out = Path(tempfile.gettempdir()) / "drone_audio_simulator_pb"
+    out.mkdir(exist_ok=True)
+    if (out / "drone_audio_pb2.py").is_file() and (out / "drone_audio_pb2_grpc.py").is_file():
+        if str(out) not in sys.path:
+            sys.path.insert(0, str(out))
+        return out
+    if not PROTO_FILE.is_file():
+        raise SystemExit(f"proto file not found: {PROTO_FILE}")
+    subprocess.run(
+        [
+            sys.executable, "-m", "grpc_tools.protoc",
+            f"-I{PROTO_FILE.parent}",
+            f"--python_out={out}",
+            f"--grpc_python_out={out}",
+            str(PROTO_FILE),
+        ],
+        check=True,
+    )
+    if str(out) not in sys.path:
+        sys.path.insert(0, str(out))
+    return out
+
+
+def _make_drone_buzz_pcm16(seconds: int) -> bytes:
+    import numpy as np
+    sr = AUDIO_BURST_SAMPLE_RATE
+    t = np.linspace(0, seconds, sr * seconds, endpoint=False)
+    sig = (
+        0.30 * np.sin(2 * np.pi * 180.0 * t)
+        + 0.22 * np.sin(2 * np.pi * 360.0 * t)
+        + 0.12 * np.sin(2 * np.pi * 540.0 * t)
+        + 0.05 * np.random.randn(t.size)
+    )
+    sig = np.clip(sig * 0.7, -1.0, 1.0)
+    return (sig * 32767).astype(np.int16).tobytes()
+
+
+def _make_noise_pcm16(seconds: int) -> bytes:
+    import numpy as np
+    sr = AUDIO_BURST_SAMPLE_RATE
+    sig = np.random.randn(sr * seconds) * 0.05
+    sig = np.clip(sig, -1.0, 1.0)
+    return (sig * 32767).astype(np.int16).tobytes()
+
+
+def _stream_audio_burst_for_phone(
+    *,
+    gateway_target: str,
+    use_tls: bool,
+    device_id: str,
+    site_label: str,
+    lat: float,
+    lon: float,
+    frame_count: int,
+    is_drone: bool,
+) -> tuple[str, bool, str]:
+    """Open a single gRPC bidi stream, push a handshake + frame_count audio
+    frames, then close. Returns (device_id, ok, detail)."""
+    import grpc
+    import drone_audio_pb2 as pb
+    import drone_audio_pb2_grpc as pb_grpc
+
+    sr = AUDIO_BURST_SAMPLE_RATE
+    frame_seconds = AUDIO_BURST_FRAME_SECONDS
+
+    if is_drone:
+        pcm_chunks = [_make_drone_buzz_pcm16(frame_seconds) for _ in range(frame_count)]
+    else:
+        pcm_chunks = [_make_noise_pcm16(frame_seconds) for _ in range(frame_count)]
+
+    credentials = grpc.ssl_channel_credentials() if use_tls else None
+    if use_tls:
+        channel = grpc.secure_channel(gateway_target, credentials)
+    else:
+        channel = grpc.insecure_channel(gateway_target)
+
+    try:
+        stub = pb_grpc.DroneAudioStreamStub(channel)
+
+        def request_iter():
+            yield pb.ClientStreamMessage(
+                handshake=pb.ConnectHandshake(
+                    device_id=device_id,
+                    connect_timestamp_ms=now_ms(),
+                    app_version="sim-audio-burst-1.0",
+                    device_model="SOH simulator",
+                    os_version="local-only",
+                    assigned_site_label=site_label,
+                    location=pb.DeviceLocation(
+                        latitude=lat,
+                        longitude=lon,
+                        horizontal_accuracy_meters=5.0,
+                        location_timestamp_ms=now_ms(),
+                        provider="simulator",
+                        status=pb.LOCATION_STATUS_CURRENT,
+                    ),
+                    health=pb.DeviceHealth(
+                        battery_percent=80,
+                        network_type=pb.NETWORK_TYPE_WIFI,
+                        app_version="sim-audio-burst-1.0",
+                        thermal_state=pb.THERMAL_STATE_NOMINAL,
+                        microphone_active=True,
+                    ),
+                    auth_token_id="simulator",
+                    sample_rate_hz=sr,
+                    frame_duration_ms=frame_seconds * 1000,
+                )
+            )
+            for i, pcm in enumerate(pcm_chunks):
+                yield pb.ClientStreamMessage(
+                    audio_frame=pb.AudioFrame(
+                        device_id=device_id,
+                        capture_timestamp_ms=now_ms(),
+                        sequence_number=i + 1,
+                        sample_rate_hz=sr,
+                        pcm16_mono=pcm,
+                    )
+                )
+                # Mild pacing so the gateway's per-stream state has a chance
+                # to flush each frame to Redis before the next arrives.
+                time.sleep(0.05)
+
+        # Drain server-side responses; we don't act on them but we need to
+        # consume the iterator for the stream to close cleanly.
+        for _resp in stub.StreamAudio(request_iter(), timeout=30):
+            pass
+        return (device_id, True, "drone-buzz" if is_drone else "noise")
+    except Exception as e:  # noqa: BLE001
+        return (device_id, False, f"{type(e).__name__}: {e}")
+    finally:
+        try:
+            channel.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _parse_gateway_target(url: str) -> tuple[str, bool]:
+    """Accept either 'host[:port]' or 'https://host[:port]/'; return
+    (host:port, use_tls)."""
+    raw = url.strip().rstrip("/")
+    if raw.startswith("http://"):
+        host = raw[len("http://"):]
+        return (host if ":" in host else f"{host}:80", False)
+    if raw.startswith("https://"):
+        host = raw[len("https://"):]
+        return (host if ":" in host else f"{host}:443", True)
+    # Bare host: default to TLS:443 (Cloud Run terminates TLS for us).
+    return (raw if ":" in raw else f"{raw}:443", True)
+
+
+def run_audio_burst_cycle(
+    *,
+    gateway_url: str,
+    phones: list[tuple[str, float, float, str]],
+    frame_count: int,
+) -> None:
+    _ensure_pb_stubs()
+    target, use_tls = _parse_gateway_target(gateway_url)
+    drone_idx = random.randrange(len(phones))
+
+    print(
+        f"audio-burst: gateway={target} tls={use_tls} frames={frame_count} "
+        f"drone_sensor={phones[drone_idx][0]}",
+        flush=True,
+    )
+
+    futures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(phones)) as pool:
+        for i, (did, lat, lon, site) in enumerate(phones):
+            futures.append(
+                pool.submit(
+                    _stream_audio_burst_for_phone,
+                    gateway_target=target,
+                    use_tls=use_tls,
+                    device_id=did,
+                    site_label=site,
+                    lat=lat,
+                    lon=lon,
+                    frame_count=frame_count,
+                    is_drone=(i == drone_idx),
+                )
+            )
+        for fut in concurrent.futures.as_completed(futures):
+            did, ok, detail = fut.result()
+            status = "OK" if ok else "FAIL"
+            print(f"  audio-burst {status} {did}: {detail}", flush=True)
+
+
 def main() -> int:
     args = parse_args()
     if not args.project:
@@ -302,14 +539,52 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    if not args.register_only and not args.admin_url and not args.redis_host:
+    if (
+        not args.register_only
+        and not args.admin_url
+        and not args.redis_host
+        and not args.audio_burst
+    ):
         print(
-            "Missing --admin-url or --redis-host. Pass --register-only to write Firestore docs only.",
+            "Missing --admin-url, --redis-host, --audio-burst, or --register-only.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.audio_burst and not args.gateway_url:
+        print(
+            "--audio-burst requires --gateway-url (or $DRONE_SENSOR_GATEWAY_URL).",
             file=sys.stderr,
         )
         return 2
 
     phones = phone_fixtures(args)
+
+    # If --audio-burst is the only mode specified (no heartbeat path),
+    # run a self-contained audio-burst loop and return.
+    if args.audio_burst and not args.admin_url and not args.redis_host and not args.register_only:
+        stop = False
+
+        def _stop(_signum: int, _frame: object) -> None:
+            nonlocal stop
+            stop = True
+
+        signal.signal(signal.SIGINT, _stop)
+        signal.signal(signal.SIGTERM, _stop)
+
+        while not stop:
+            run_audio_burst_cycle(
+                gateway_url=args.gateway_url,
+                phones=phones,
+                frame_count=args.audio_burst_seconds,
+            )
+            if args.once:
+                break
+            for _ in range(args.interval_seconds):
+                if stop:
+                    break
+                time.sleep(1)
+        return 0
 
     if args.admin_url:
         stop = False
@@ -338,6 +613,12 @@ def main() -> int:
                 f"next refresh in {args.interval_seconds}s",
                 flush=True,
             )
+            if args.audio_burst:
+                run_audio_burst_cycle(
+                    gateway_url=args.gateway_url,
+                    phones=phones,
+                    frame_count=args.audio_burst_seconds,
+                )
             if args.once:
                 break
             for _ in range(args.interval_seconds):
@@ -410,6 +691,12 @@ def main() -> int:
             f"next refresh in {args.interval_seconds}s",
             flush=True,
         )
+        if args.audio_burst:
+            run_audio_burst_cycle(
+                gateway_url=args.gateway_url,
+                phones=phones,
+                frame_count=args.audio_burst_seconds,
+            )
         if args.once:
             break
         for _ in range(args.interval_seconds):
