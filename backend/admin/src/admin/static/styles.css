@@ -105,15 +105,22 @@ thead th {
 .state-wipe_sent { background: black; color: white; border: 1px solid var(--red); }
 .state-unknown { background: var(--gray); color: white; }
 
-.dot::before {
-    content: "●";
-    margin-right: 6px;
-    font-size: 16px;
+.dot-col,
+td.dot {
+    width: 1.5em;
+    text-align: center;
+    padding-right: 0;
 }
 
-.fresh-green::before { color: var(--green); }
-.fresh-yellow::before { color: var(--yellow); }
-.fresh-red::before { color: var(--red); }
+td.dot::before {
+    content: "●";
+    font-size: 14px;
+    line-height: 1;
+}
+
+td.fresh-green::before  { color: var(--green); }
+td.fresh-yellow::before { color: var(--yellow); }
+td.fresh-red::before    { color: var(--red); }
 
 .inline-action {
     display: inline-block;
