@@ -55,7 +55,7 @@ DEFAULT_PHONE_FIXTURES = (
     ("DRONE-SENSOR-003", 26.676944, -80.036167, "East of main house / Tunnel link"),
     ("DRONE-SENSOR-004", 26.6783, -80.0358, "Northern property line"),
     ("DRONE-SENSOR-005", 26.677596, -80.036154, "Transitioning to northern neighbor"),
-    ("DRONE-SENSOR-006", 26.6805, -80.0367, "Roadway curving sharply west"),
+    ("DRONE-SENSOR-006", 26.676944, -80.036167, "Roadway curving sharply west"),
     ("DRONE-SENSOR-007", 26.6815, -80.0378, "Mid-curve baseline"),
     ("DRONE-SENSOR-008", 26.6823, -80.0388, "Northern approach buffer"),
     ("DRONE-SENSOR-009", 26.6828, -80.0395, "Outer northern perimeter"),
