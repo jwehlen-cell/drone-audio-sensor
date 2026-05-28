@@ -1,0 +1,29 @@
+[Unit]
+Description=Drone audio simulator (continuous audio-burst sender)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+User=drone-sim
+Group=drone-sim
+WorkingDirectory=@@INSTALL_DIR@@
+ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/simulate_soh_phones.py \
+    --project @@GCP_PROJECT@@ \
+    --gateway-url @@GATEWAY_URL@@ \
+    --audio-burst \
+    --audio-burst-seconds 5 \
+    --interval-seconds 180
+StandardOutput=append:/var/log/drone-simulator.log
+StandardError=append:/var/log/drone-simulator.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
