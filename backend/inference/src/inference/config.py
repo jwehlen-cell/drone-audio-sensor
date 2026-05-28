@@ -28,12 +28,16 @@ class Settings(BaseSettings):
     firestore_database: str = "(default)"
 
     model_handle: str = "https://tfhub.dev/google/yamnet/1"
-    # Trained dense head over YAMNet embeddings, sourced from
+    # Trained dense heads over YAMNet embeddings, sourced from
     # github.com/jwehlen-cell/yamnet-drone-detector and baked into the
-    # container at /app/models/.
+    # container at /app/models/. Binary drives the detection threshold;
+    # subtype runs alongside and characterizes which drone model is
+    # present when a detection fires.
     dense_classifier_path: str = "/app/models/drone_classifier_binary.keras"
-    model_name: str = "yamnet+erau-binary"
-    model_version: str = "erau-2024.3-v1"
+    subtype_classifier_path: str = "/app/models/drone_classifier_subtype.keras"
+    subtype_labels_path: str = "/app/models/drone_classifier_subtype.labels.json"
+    model_name: str = "yamnet+erau-binary+subtype"
+    model_version: str = "erau-2024.3-v2"
     score_buffer_size: int = 5
     detection_threshold: float = 0.5
     min_frames_over_threshold: int = 3

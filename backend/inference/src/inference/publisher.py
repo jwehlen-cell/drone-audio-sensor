@@ -48,6 +48,11 @@ class DetectionPublisher:
                 "version": event.model_version,
             },
             "class_scores": event.class_scores,
+            "subtype": {
+                "label": event.subtype_label,
+                "confidence": event.subtype_confidence,
+                "probs": event.subtype_probs,
+            },
             "device_location": location,
             "published_at_ms": now_ms(),
         }

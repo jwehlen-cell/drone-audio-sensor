@@ -52,6 +52,8 @@ class DetectionRow:
     published_at_ms: int | None
     location_lat: float | None
     location_lon: float | None
+    subtype_label: str
+    subtype_confidence: float
 
 
 class FirestoreRepo:
@@ -203,6 +205,7 @@ def _to_device_row(device_id: str, data: dict[str, Any]) -> DeviceRow:
 
 def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
     location = data.get("device_location") or {}
+    subtype = data.get("subtype") or {}
     return DetectionRow(
         detection_id=detection_id,
         device_id=str(data.get("device_id") or ""),
@@ -213,6 +216,9 @@ def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
         published_at_ms=_int(data.get("published_at_ms")),
         location_lat=_float(location.get("latitude") if isinstance(location, dict) else None),
         location_lon=_float(location.get("longitude") if isinstance(location, dict) else None),
+        subtype_label=str(subtype.get("label") if isinstance(subtype, dict) else ""),
+        subtype_confidence=float(subtype.get("confidence") or 0.0)
+        if isinstance(subtype, dict) else 0.0,
     )
 
 

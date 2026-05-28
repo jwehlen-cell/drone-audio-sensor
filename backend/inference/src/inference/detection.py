@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import redis.asyncio as redis_async
 import structlog
@@ -43,6 +43,9 @@ class DetectionEvent:
     model_name: str
     model_version: str
     class_scores: dict[str, float]
+    subtype_label: str = ""
+    subtype_confidence: float = 0.0
+    subtype_probs: dict[str, float] = field(default_factory=dict)
 
 
 class DetectionState:
@@ -145,6 +148,9 @@ def build_detection(
         model_name=settings.model_name,
         model_version=settings.model_version,
         class_scores=score.class_scores,
+        subtype_label=score.subtype_label,
+        subtype_confidence=score.subtype_confidence,
+        subtype_probs=score.subtype_probs,
     )
 
 

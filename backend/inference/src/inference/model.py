@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -17,38 +18,44 @@ class FrameScore:
     drone_score: float
     auxiliary_score: float
     class_scores: dict[str, float]
+    subtype_label: str = ""
+    subtype_confidence: float = 0.0
+    subtype_probs: dict[str, float] = field(default_factory=dict)
 
 
 class YAMNetModel:
-    """YAMNet feature extractor + a trained ERAU dense head for drone detection.
+    """YAMNet feature extractor + two trained ERAU dense heads.
 
     YAMNet (frozen, from TF Hub) maps 16 kHz mono float32 audio to a
-    (frames, 1024) embedding tensor. We mean-pool over the time axis and feed
-    the result through a small dense classifier trained on the Embry-Riddle
-    YAMNet drone-embedding dataset (DOI 10.17632/5dmcszvym4.3). The dense
-    head outputs a sigmoid drone probability in [0, 1].
+    (frames, 1024) embedding tensor. We mean-pool over the time axis and
+    feed the result through:
+      - the binary head -> drone probability (drives detection)
+      - the subtype head -> distribution over
+          {matrice, mavic3, mavicmini, no_drone} (characterizes which
+          drone model is present once a detection fires)
 
-    YAMNet's native 521-class AudioSet scores are kept as a diagnostic side
-    channel (``auxiliary_score`` and ``class_scores``) so downstream Pub/Sub
-    consumers can still see Helicopter/Aircraft/Propeller signals when a
-    detection fires.
+    YAMNet's native 521-class AudioSet scores are kept as a diagnostic
+    side channel (``auxiliary_score`` and ``class_scores``).
 
-    Provenance of the dense head weights:
-      models/drone_classifier_binary.keras
-      Trained on TF 2.20; loads on the container's TF 2.16 runtime.
-      Test accuracy 95.2%, F1 93.2% on a 1,822-sample stratified holdout.
+    Provenance of the dense heads:
+      models/drone_classifier_binary.keras    (test accuracy 95.2%, F1 93.2%)
+      models/drone_classifier_subtype.keras   (test accuracy 95.1%, F1 macro 95.3%)
     """
-
-    _DRONE_FALLBACK_INDEX = 478  # AudioSet "Drone" — used only if class map parse fails
 
     def __init__(self) -> None:
         self._yamnet = None
         self._classifier = None
+        self._subtype_classifier = None
+        self._subtype_labels: list[str] = []
         self._class_names: list[str] = []
         self._auxiliary_indices: list[int] = []
 
     def load(self) -> None:
-        if self._yamnet is not None and self._classifier is not None:
+        if (
+            self._yamnet is not None
+            and self._classifier is not None
+            and self._subtype_classifier is not None
+        ):
             return
 
         log.info("yamnet_loading", handle=settings.model_handle)
@@ -62,22 +69,40 @@ class YAMNetModel:
         head_path = Path(settings.dense_classifier_path)
         if not head_path.is_file():
             raise FileNotFoundError(
-                f"Trained dense classifier not found at {head_path}. "
-                "Expected to be baked into the container under /app/models/."
+                f"Binary dense classifier not found at {head_path}."
             )
         log.info("dense_head_loading", path=str(head_path))
         self._classifier = tf.keras.models.load_model(head_path)
+
+        subtype_path = Path(settings.subtype_classifier_path)
+        labels_path = Path(settings.subtype_labels_path)
+        if not subtype_path.is_file():
+            raise FileNotFoundError(
+                f"Subtype dense classifier not found at {subtype_path}."
+            )
+        if not labels_path.is_file():
+            raise FileNotFoundError(
+                f"Subtype labels not found at {labels_path}."
+            )
+        log.info("subtype_head_loading", path=str(subtype_path))
+        self._subtype_classifier = tf.keras.models.load_model(subtype_path)
+        self._subtype_labels = json.loads(labels_path.read_text())
 
         log.info(
             "yamnet_loaded",
             num_classes=len(self._class_names),
             auxiliary_indices=self._auxiliary_indices,
             dense_head_params=int(self._classifier.count_params()),
-            dense_head_output=tuple(self._classifier.output_shape),
+            subtype_head_params=int(self._subtype_classifier.count_params()),
+            subtype_labels=self._subtype_labels,
         )
 
     def infer_pcm16(self, pcm16_bytes: bytes, sample_rate_hz: int) -> FrameScore:
-        if self._yamnet is None or self._classifier is None:
+        if (
+            self._yamnet is None
+            or self._classifier is None
+            or self._subtype_classifier is None
+        ):
             raise RuntimeError("Model not loaded; call load() first")
         if sample_rate_hz != 16_000:
             raise ValueError(f"YAMNet requires 16 kHz audio; got {sample_rate_hz}")
@@ -92,9 +117,18 @@ class YAMNetModel:
         if embeddings.size == 0:
             return FrameScore(0.0, 0.0, {})
         pooled = embeddings.mean(axis=0, keepdims=True).astype(np.float32)  # (1, 1024)
+
         # Direct __call__ is ~3-4x faster than .predict() for single-sample
         # inference; .predict() has heavy per-call overhead.
         drone_prob = float(self._classifier(pooled, training=False).numpy()[0, 0])
+        subtype_logits = self._subtype_classifier(pooled, training=False).numpy()[0]
+        subtype_probs = {
+            label: float(p)
+            for label, p in zip(self._subtype_labels, subtype_logits.tolist())
+        }
+        top_idx = int(np.argmax(subtype_logits))
+        subtype_label = self._subtype_labels[top_idx]
+        subtype_confidence = float(subtype_logits[top_idx])
 
         scores = scores_tensor.numpy()
         per_class_mean = scores.mean(axis=0)
@@ -111,6 +145,9 @@ class YAMNetModel:
             drone_score=drone_prob,
             auxiliary_score=aux_score,
             class_scores=class_scores,
+            subtype_label=subtype_label,
+            subtype_confidence=subtype_confidence,
+            subtype_probs=subtype_probs,
         )
 
     def _load_class_names(self) -> list[str]:

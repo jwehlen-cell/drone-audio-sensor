@@ -50,11 +50,11 @@ AUDIO_BURST_DEFAULT_FRAMES = 5  # five 1-second frames -> 5 seconds of audio
 PROTO_FILE = Path(__file__).resolve().parent.parent / "proto" / "drone_audio.proto"
 
 DEFAULT_PHONE_FIXTURES = (
-    ("DRONE-SENSOR-001", 26.6755, -80.0380, "Southern boundary intersection"),
+    ("DRONE-SENSOR-001", 26.675953893532004, -80.03984234630978, "Southern boundary intersection"),
     ("DRONE-SENSOR-002", 26.6762, -80.0365, "Approaching Beach Club southern edge"),
     ("DRONE-SENSOR-003", 26.6771, -80.0360, "East of main house / Tunnel link"),
     ("DRONE-SENSOR-004", 26.6783, -80.0358, "Northern property line"),
-    ("DRONE-SENSOR-005", 26.6792, -80.0360, "Transitioning to northern neighbor"),
+    ("DRONE-SENSOR-005", 26.677596, -80.036154, "Transitioning to northern neighbor"),
     ("DRONE-SENSOR-006", 26.6805, -80.0367, "Roadway curving sharply west"),
     ("DRONE-SENSOR-007", 26.6815, -80.0378, "Mid-curve baseline"),
     ("DRONE-SENSOR-008", 26.6823, -80.0388, "Northern approach buffer"),
