@@ -43,7 +43,9 @@ build-admin:
 
 .PHONY: deploy-admin
 deploy-admin: build-admin
-	cd $(TF_DIR) && terraform apply -auto-approve -var admin_image=$(ADMIN_IMAGE)
+	cd $(TF_DIR) && terraform apply -auto-approve \
+		-var project_id=$(PROJECT_ID) \
+		-var admin_image=$(ADMIN_IMAGE)
 
 .PHONY: deploy-gateway
 deploy-gateway:
