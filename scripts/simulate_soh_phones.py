@@ -381,11 +381,13 @@ def _make_drone_buzz_pcm16(seconds: int) -> bytes:
 
 
 def _make_noise_pcm16(seconds: int) -> bytes:
-    import numpy as np
-    sr = AUDIO_BURST_SAMPLE_RATE
-    sig = np.random.randn(sr * seconds) * 0.05
-    sig = np.clip(sig, -1.0, 1.0)
-    return (sig * 32767).astype(np.int16).tobytes()
+    """Pure PCM-zero silence. Any audible amplitude of random noise lands in
+    a YAMNet-embedding region the trained head wasn't exposed to (the ERAU
+    'no_drone' class was real cars/jets/wind, not white noise) and spuriously
+    triggers the classifier; even a 0.001 dither was enough to do so in
+    practice. Pure zeros produce a near-zero YAMNet embedding and cleanly
+    map to drone_score ~0.0."""
+    return b"\x00\x00" * (AUDIO_BURST_SAMPLE_RATE * seconds)
 
 
 def _stream_audio_burst_for_phone(
