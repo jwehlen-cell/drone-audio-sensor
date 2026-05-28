@@ -8,3 +8,7 @@ redis[hiredis]==5.0.7
 pydantic==2.8.2
 pydantic-settings==2.4.0
 structlog==24.4.0
+# Offline lat/lon -> IANA timezone lookup; used by the
+# phone_local_ms Jinja filter on the status page so detection times
+# render in the device's local timezone.
+timezonefinder==6.5.4

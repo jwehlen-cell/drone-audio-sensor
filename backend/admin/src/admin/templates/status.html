@@ -113,7 +113,7 @@
                 <td><code>{{ d.device_id }}</code></td>
                 <td>{{ d.site_label or '—' }}</td>
                 <td>{{ "%.2f" | format(d.average_score) }} / {{ "%.2f" | format(d.peak_score) }}</td>
-                <td>{{ d.published_at_ms or '—' }}</td>
+                <td>{{ d.published_at_ms | phone_local_ms(d.location_lat, d.location_lon) }}</td>
                 <td>
                     {% if d.location_lat is not none %}
                         {{ "%.5f" | format(d.location_lat) }}, {{ "%.5f" | format(d.location_lon) }}

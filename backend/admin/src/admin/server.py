@@ -30,6 +30,9 @@ log = structlog.get_logger(__name__)
 BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 TEMPLATES.env.filters["utc_ms"] = lambda v: _format_utc_ms(v)
+TEMPLATES.env.filters["phone_local_ms"] = (
+    lambda v, lat, lon: _format_phone_local_ms(v, lat, lon)
+)
 
 
 class SimulatedPhone(BaseModel):
@@ -414,3 +417,43 @@ def _format_utc_ms(value: int | None) -> str:
         )
     except (TypeError, ValueError, OSError):
         return "—"
+
+
+# timezonefinder loads ~24 MB of polygon data on first use; keep a single
+# module-level instance and lazy-init it so import time stays cheap on
+# code paths that never render the status page.
+_TZ_FINDER = None
+
+
+def _get_timezone_finder():
+    global _TZ_FINDER
+    if _TZ_FINDER is None:
+        from timezonefinder import TimezoneFinder
+        _TZ_FINDER = TimezoneFinder()
+    return _TZ_FINDER
+
+
+def _format_phone_local_ms(
+    value: int | None,
+    lat: float | None,
+    lon: float | None,
+) -> str:
+    if not value:
+        return "—"
+    try:
+        ts = datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return "—"
+    if lat is None or lon is None:
+        return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    try:
+        tz_name = _get_timezone_finder().timezone_at(lat=float(lat), lng=float(lon))
+    except Exception:  # noqa: BLE001
+        tz_name = None
+    if not tz_name:
+        return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    try:
+        from zoneinfo import ZoneInfo
+        return ts.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:  # noqa: BLE001
+        return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
