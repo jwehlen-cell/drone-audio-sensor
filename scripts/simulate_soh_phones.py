@@ -59,7 +59,7 @@ DEFAULT_PHONE_FIXTURES = (
     ("DRONE-SENSOR-007", 26.6815, -80.0378, "Mid-curve baseline"),
     ("DRONE-SENSOR-008", 26.6823, -80.0388, "Northern approach buffer"),
     ("DRONE-SENSOR-009", 26.6828, -80.0395, "Outer northern perimeter"),
-    ("DRONE-SENSOR-010", 26.6832, -80.0400, "Array termination point"),
+    ("DRONE-SENSOR-010", 26.677639, -80.039558, "Array termination point"),
 )
 
 
