@@ -15,8 +15,12 @@ COPY backend/gateway/requirements.txt ./requirements.txt
 RUN pip install --prefix=/install -r requirements.txt
 
 COPY proto/ ./proto/
+# pip --prefix=/install puts packages under /install/lib/.../site-packages,
+# which is not on the build stage's default PYTHONPATH, so the protoc
+# step needs to be pointed at it explicitly.
 RUN mkdir -p /install/proto_gen \
- && python -m grpc_tools.protoc \
+ && PYTHONPATH=/install/lib/python3.12/site-packages \
+    python -m grpc_tools.protoc \
       -I./proto \
       --python_out=/install/proto_gen \
       --pyi_out=/install/proto_gen \
