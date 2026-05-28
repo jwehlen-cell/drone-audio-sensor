@@ -34,6 +34,7 @@ WORKDIR /app
 
 COPY --from=build /install /usr/local
 COPY backend/inference/src ./src
+COPY backend/inference/models ./models
 
 RUN mkdir -p /app/tfhub_cache && chown -R app:app /app
 

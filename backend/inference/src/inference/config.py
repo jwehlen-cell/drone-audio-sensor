@@ -28,16 +28,20 @@ class Settings(BaseSettings):
     firestore_database: str = "(default)"
 
     model_handle: str = "https://tfhub.dev/google/yamnet/1"
-    model_name: str = "yamnet"
-    model_version: str = "1"
+    # Trained dense head over YAMNet embeddings, sourced from
+    # github.com/jwehlen-cell/yamnet-drone-detector and baked into the
+    # container at /app/models/.
+    dense_classifier_path: str = "/app/models/drone_classifier_binary.keras"
+    model_name: str = "yamnet+erau-binary"
+    model_version: str = "erau-2024.3-v1"
     score_buffer_size: int = 5
     detection_threshold: float = 0.5
     min_frames_over_threshold: int = 3
     suppression_window_seconds: int = 60
 
-    drone_class_names: tuple[str, ...] = (
-        "Drone",
-    )
+    # Kept as a diagnostic side channel only. The trained dense head produces
+    # the actual drone_score; these YAMNet AudioSet labels just give downstream
+    # consumers extra context about what the audio sounded like.
     auxiliary_class_names: tuple[str, ...] = (
         "Helicopter",
         "Aircraft",
