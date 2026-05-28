@@ -366,16 +366,63 @@ def _ensure_pb_stubs() -> Path:
     return out
 
 
-def _make_drone_buzz_pcm16(seconds: int) -> bytes:
+# Empirically tuned synthetic profiles that hit a specific subtype class on
+# the trained ERAU subtype head. The parameter tuples are (fundamental Hz,
+# [(harmonic_multiplier, amplitude), ...], AM rate Hz, AM depth, noise amp).
+# These are not physical models of the drones; they're synthetic signals that
+# happen to land near each subtype's region of YAMNet-embedding space.
+#
+#   mavic3      => binary ~0.85, subtype mavic3    ~0.82
+#   matrice     => binary ~0.98, subtype matrice   ~0.80
+#   mavicmini   => binary ~1.00, subtype mavicmini ~0.44 (mixed with v3)
+#   unknown     => binary ~0.99, subtype no_drone  ~0.89 (binary fires but
+#                                                    subtype falls through)
+_DRONE_PROFILES: tuple[tuple[str, float, list[tuple[int, float]], float, float, float], ...] = (
+    ("known-mavic3",
+     160.0, [(1, 0.30), (2, 0.20), (3, 0.12), (4, 0.06)], 14.0, 0.50, 0.12),
+    ("known-matrice",
+     280.0, [(1, 0.30), (2, 0.16), (3, 0.08)],            28.0, 0.60, 0.14),
+    ("known-mavicmini",
+     190.0, [(1, 0.20), (2, 0.15)],                       12.0, 0.40, 0.20),
+    ("unknown-drone",
+     180.0, [(1, 0.30), (2, 0.22), (3, 0.12)],            15.0, 0.35, 0.05),
+)
+
+# How frequently each profile is chosen per drone cycle.
+_DRONE_PROFILE_WEIGHTS = {
+    "known-mavic3":    3,
+    "known-matrice":   3,
+    "known-mavicmini": 3,
+    "unknown-drone":   2,
+}
+
+
+def _pick_drone_profile() -> tuple[str, float, list[tuple[int, float]], float, float, float]:
+    names = [p[0] for p in _DRONE_PROFILES]
+    weights = [_DRONE_PROFILE_WEIGHTS.get(n, 1) for n in names]
+    chosen = random.choices(names, weights=weights, k=1)[0]
+    for prof in _DRONE_PROFILES:
+        if prof[0] == chosen:
+            return prof
+    return _DRONE_PROFILES[0]
+
+
+def _make_drone_buzz_pcm16(seconds: int, profile: tuple | None = None) -> bytes:
+    """Generate a synthetic drone-like PCM16 buffer using one of the empirically-
+    tuned profiles. If a profile is not passed, picks one at random per the
+    weight table above."""
     import numpy as np
+    if profile is None:
+        profile = _pick_drone_profile()
+    _name, fund, harms, mod_hz, am_depth, noise_amp = profile
     sr = AUDIO_BURST_SAMPLE_RATE
     t = np.linspace(0, seconds, sr * seconds, endpoint=False)
-    sig = (
-        0.30 * np.sin(2 * np.pi * 180.0 * t)
-        + 0.22 * np.sin(2 * np.pi * 360.0 * t)
-        + 0.12 * np.sin(2 * np.pi * 540.0 * t)
-        + 0.05 * np.random.randn(t.size)
-    )
+    sig = np.zeros_like(t)
+    for mult, amp in harms:
+        sig += amp * np.sin(2 * np.pi * fund * mult * t)
+    if mod_hz > 0:
+        sig *= (1 - am_depth * 0.5 * (1 + np.sin(2 * np.pi * mod_hz * t)))
+    sig += noise_amp * np.random.randn(t.size)
     sig = np.clip(sig * 0.7, -1.0, 1.0)
     return (sig * 32767).astype(np.int16).tobytes()
 
@@ -400,6 +447,7 @@ def _stream_audio_burst_for_phone(
     lon: float,
     frame_count: int,
     is_drone: bool,
+    drone_profile: tuple | None = None,
 ) -> tuple[str, bool, str]:
     """Open a single gRPC bidi stream, push a handshake + frame_count audio
     frames, then close. Returns (device_id, ok, detail)."""
@@ -411,7 +459,10 @@ def _stream_audio_burst_for_phone(
     frame_seconds = AUDIO_BURST_FRAME_SECONDS
 
     if is_drone:
-        pcm_chunks = [_make_drone_buzz_pcm16(frame_seconds) for _ in range(frame_count)]
+        pcm_chunks = [
+            _make_drone_buzz_pcm16(frame_seconds, profile=drone_profile)
+            for _ in range(frame_count)
+        ]
     else:
         pcm_chunks = [_make_noise_pcm16(frame_seconds) for _ in range(frame_count)]
 
@@ -471,7 +522,10 @@ def _stream_audio_burst_for_phone(
         # consume the iterator for the stream to close cleanly.
         for _resp in stub.StreamAudio(request_iter(), timeout=30):
             pass
-        return (device_id, True, "drone-buzz" if is_drone else "noise")
+        detail = drone_profile[0] if (is_drone and drone_profile) else (
+            "drone-buzz" if is_drone else "noise"
+        )
+        return (device_id, True, detail)
     except Exception as e:  # noqa: BLE001
         return (device_id, False, f"{type(e).__name__}: {e}")
     finally:
@@ -504,10 +558,11 @@ def run_audio_burst_cycle(
     _ensure_pb_stubs()
     target, use_tls = _parse_gateway_target(gateway_url)
     drone_idx = random.randrange(len(phones))
+    drone_profile = _pick_drone_profile()
 
     print(
         f"audio-burst: gateway={target} tls={use_tls} frames={frame_count} "
-        f"drone_sensor={phones[drone_idx][0]}",
+        f"drone_sensor={phones[drone_idx][0]} drone_profile={drone_profile[0]}",
         flush=True,
     )
 
@@ -525,6 +580,7 @@ def run_audio_burst_cycle(
                     lon=lon,
                     frame_count=frame_count,
                     is_drone=(i == drone_idx),
+                    drone_profile=drone_profile if i == drone_idx else None,
                 )
             )
         for fut in concurrent.futures.as_completed(futures):
