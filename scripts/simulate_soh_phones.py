@@ -52,7 +52,7 @@ PROTO_FILE = Path(__file__).resolve().parent.parent / "proto" / "drone_audio.pro
 DEFAULT_PHONE_FIXTURES = (
     ("DRONE-SENSOR-001", 26.675953893532004, -80.03984234630978, "Southern boundary intersection"),
     ("DRONE-SENSOR-002", 26.6762, -80.0365, "Approaching Beach Club southern edge"),
-    ("DRONE-SENSOR-003", 26.6771, -80.0360, "East of main house / Tunnel link"),
+    ("DRONE-SENSOR-003", 26.676944, -80.036167, "East of main house / Tunnel link"),
     ("DRONE-SENSOR-004", 26.6783, -80.0358, "Northern property line"),
     ("DRONE-SENSOR-005", 26.677596, -80.036154, "Transitioning to northern neighbor"),
     ("DRONE-SENSOR-006", 26.6805, -80.0367, "Roadway curving sharply west"),
