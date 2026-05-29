@@ -24,22 +24,29 @@ class FrameScore:
 
 
 class YAMNetModel:
-    """YAMNet feature extractor + two trained ERAU dense heads.
+    """YAMNet feature extractor + two trained dense heads.
 
     YAMNet (frozen, from TF Hub) maps 16 kHz mono float32 audio to a
     (frames, 1024) embedding tensor. We mean-pool over the time axis and
     feed the result through:
       - the binary head -> drone probability (drives detection)
       - the subtype head -> distribution over
-          {matrice, mavic3, mavicmini, no_drone} (characterizes which
-          drone model is present once a detection fires)
+          {bebop, mambo, matrice, mavic3, mavicmini, no_drone}
+          (characterizes which drone model is present once a detection
+          fires)
 
     YAMNet's native 521-class AudioSet scores are kept as a diagnostic
     side channel (``auxiliary_score`` and ``class_scores``).
 
+    Training data: ERAU YAMNet drone-embedding dataset (matrice / mavic3 /
+    mavicmini) plus saraalemadi/DroneAudioDataset (bebop / mambo + ESC-50
+    environmental negatives) and 32 demo clips from mackenzie-jane/
+    drone-visualization (binary positives only). The authoritative label
+    list lives in the sidecar JSON loaded at startup.
+
     Provenance of the dense heads:
-      models/drone_classifier_binary.keras    (test accuracy 95.2%, F1 93.2%)
-      models/drone_classifier_subtype.keras   (test accuracy 95.1%, F1 macro 95.3%)
+      models/drone_classifier_binary.keras    (test accuracy 95.3%, F1 93.6%)
+      models/drone_classifier_subtype.keras   (test accuracy 93.6%, F1 macro 91.6%)
     """
 
     def __init__(self) -> None:
