@@ -232,9 +232,12 @@ def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
     location = data.get("device_location") or {}
     subtype = data.get("subtype") or {}
     category = data.get("category") or {}
-    subtype_label = str(subtype.get("label") if isinstance(subtype, dict) else "")
-    category_token = str(category.get("token") if isinstance(category, dict) else "")
-    category_display = str(category.get("display") if isinstance(category, dict) else "")
+    subtype_label = str(subtype.get("label") or "") if isinstance(subtype, dict) else ""
+    category_token = ""
+    category_display = ""
+    if isinstance(category, dict):
+        category_token = str(category.get("token") or "")
+        category_display = str(category.get("display") or "")
     if category_token == "known_drone" and category_display in SUBTYPE_DISPLAY:
         # Worker emits the raw subtype token (e.g. "mavicmini"); admin
         # translates to maker+model for the UI ("DJI Mavic Mini 2").
