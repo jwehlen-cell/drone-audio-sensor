@@ -115,7 +115,17 @@
                 <td>{{ "%.2f" | format(d.average_score) }} / {{ "%.2f" | format(d.peak_score) }}</td>
                 <td>{{ d.published_at_ms | phone_local_ms(d.location_lat, d.location_lon) }}</td>
                 <td>
-                    {% if d.subtype_label %}
+                    {% if d.category_display %}
+                        {# Inference worker categorizes detections into known_drone
+                           (display = maker + model), unknown_drone (binary fired
+                           but characterizer abstained), or unknown_source (rare
+                           at detection time). Fall through to subtype_label for
+                           docs written before category was wired in. #}
+                        <strong>{{ d.category_display }}</strong>
+                        {% if d.category == "known_drone" and d.subtype_confidence %}
+                            ({{ "%.0f" | format(d.subtype_confidence * 100) }}%)
+                        {% endif %}
+                    {% elif d.subtype_label %}
                         <code>{{ d.subtype_label }}</code>
                         ({{ "%.0f" | format(d.subtype_confidence * 100) }}%)
                     {% else %}—{% endif %}

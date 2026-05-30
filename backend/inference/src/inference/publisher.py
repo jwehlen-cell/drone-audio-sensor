@@ -53,6 +53,11 @@ class DetectionPublisher:
                 "confidence": event.subtype_confidence,
                 "probs": event.subtype_probs,
             },
+            "category": {
+                # See model.py::categorize for definitions.
+                "token": event.category,
+                "display": event.category_display,
+            },
             "device_location": location,
             "published_at_ms": now_ms(),
         }

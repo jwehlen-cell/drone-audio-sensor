@@ -9,7 +9,7 @@ import redis.asyncio as redis_async
 import structlog
 
 from .config import settings
-from .model import FrameScore
+from .model import FrameScore, categorize
 
 log = structlog.get_logger(__name__)
 
@@ -46,6 +46,17 @@ class DetectionEvent:
     subtype_label: str = ""
     subtype_confidence: float = 0.0
     subtype_probs: dict[str, float] = field(default_factory=dict)
+    # Operational category derived from (peak_score, subtype_label):
+    #   - "known_drone"   : trigger fired and characterizer matched a
+    #                       trained subtype. ``category_display`` is the
+    #                       raw subtype token (e.g. ``"mavicmini"``).
+    #   - "unknown_drone" : trigger fired but characterizer said
+    #                       no_drone. ``category_display`` = ``"Unknown
+    #                       drone"``.
+    # Always one of these two at detection time (detections only fire
+    # above the trigger threshold).
+    category: str = "known_drone"
+    category_display: str = ""
 
 
 class DetectionState:
@@ -131,6 +142,10 @@ def build_detection(
 ) -> DetectionEvent:
     first = buffer[-1]
     last = buffer[0]
+    # Use peak_score for category so a single weak-subtype frame in the
+    # buffer doesn't override an otherwise-strong detection. The current
+    # frame's subtype_label is what the publisher carries downstream.
+    category, category_display = categorize(peak, score.subtype_label)
     return DetectionEvent(
         detection_id=uuid.uuid4().hex,
         device_id=frame.device_id,
@@ -151,6 +166,8 @@ def build_detection(
         subtype_label=score.subtype_label,
         subtype_confidence=score.subtype_confidence,
         subtype_probs=score.subtype_probs,
+        category=category,
+        category_display=category_display,
     )
 
 

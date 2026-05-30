@@ -23,6 +23,52 @@ class FrameScore:
     subtype_probs: dict[str, float] = field(default_factory=dict)
 
 
+# Operational category thresholds. The trigger matches
+# INFERENCE_DETECTION_THRESHOLD; the lower bound of the uncertain band
+# is what separates "Unknown source" (could be a drone we've never
+# seen) from "no_drone" (confidently silent / not-drone-like).
+DRONE_TRIGGER_DEFAULT = 0.5
+UNCERTAIN_LOW_DEFAULT = 0.2
+
+
+def categorize(
+    drone_score: float,
+    subtype_label: str,
+    drone_threshold: float = DRONE_TRIGGER_DEFAULT,
+    uncertain_low: float = UNCERTAIN_LOW_DEFAULT,
+) -> tuple[str, str]:
+    """Map (binary head, subtype head) into one of four ops categories.
+
+    Returns (category_token, display_string).
+
+      known_drone   : binary fires AND subtype matches a trained drone
+                      class. ``display_string`` is the raw subtype
+                      token (e.g. ``"mavicmini"``) — callers map it to
+                      maker + model at the UI layer.
+      unknown_drone : binary fires AND subtype top is ``"no_drone"``
+                      (binary head detected a drone, but the
+                      characterizer doesn't recognize it as any of the
+                      trained models). Operationally: "drone here, type
+                      unknown".
+      unknown_source: binary doesn't fire but drone_score is above
+                      ``uncertain_low`` — possible unfamiliar drone
+                      (out-of-distribution input).
+      no_drone      : drone_score below ``uncertain_low`` (confident
+                      not-a-drone).
+
+    Detection events only fire when ``drone_score >= drone_threshold``,
+    so build_detection() never sees the lower two categories. The
+    helper is exposed at frame level for telemetry/operations.
+    """
+    if drone_score >= drone_threshold:
+        if subtype_label == "no_drone":
+            return "unknown_drone", "Unknown drone"
+        return "known_drone", subtype_label
+    if drone_score >= uncertain_low:
+        return "unknown_source", "Unknown source"
+    return "no_drone", "no_drone"
+
+
 class YAMNetModel:
     """YAMNet feature extractor + two trained dense heads.
 

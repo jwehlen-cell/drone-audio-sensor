@@ -41,6 +41,20 @@ class DeviceRow:
     location_timestamp_ms: int | None
 
 
+# Map raw subtype tokens to ``<maker> <model>`` display strings. Kept in
+# sync with the standalone yamnet-drone-detector's DISPLAY map. Used to
+# translate ``known_drone`` category_display values (which the worker
+# emits as the raw subtype token, see model.py::categorize) into
+# human-readable names for the admin UI.
+SUBTYPE_DISPLAY = {
+    "bebop":     "Parrot Bebop",
+    "mambo":     "Parrot Mambo",
+    "matrice":   "DJI Matrice M100",
+    "mavic3":    "DJI Mavic 3",
+    "mavicmini": "DJI Mavic Mini 2",
+}
+
+
 @dataclass
 class DetectionRow:
     detection_id: str
@@ -54,6 +68,17 @@ class DetectionRow:
     location_lon: float | None
     subtype_label: str
     subtype_confidence: float
+    # Operational category set by the inference worker:
+    #   "known_drone"   -> ``category_display`` carries the raw subtype
+    #                      token (e.g. ``"mavicmini"``); the template
+    #                      formats it via the maker+model lookup.
+    #   "unknown_drone" -> binary head detected a drone but the
+    #                      characterizer didn't match any trained model.
+    #                      ``category_display`` = ``"Unknown drone"``.
+    # Empty string when the detection doc was written before this field
+    # existed; the template falls back to subtype_label in that case.
+    category: str = ""
+    category_display: str = ""
 
 
 class FirestoreRepo:
@@ -206,6 +231,14 @@ def _to_device_row(device_id: str, data: dict[str, Any]) -> DeviceRow:
 def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
     location = data.get("device_location") or {}
     subtype = data.get("subtype") or {}
+    category = data.get("category") or {}
+    subtype_label = str(subtype.get("label") if isinstance(subtype, dict) else "")
+    category_token = str(category.get("token") if isinstance(category, dict) else "")
+    category_display = str(category.get("display") if isinstance(category, dict) else "")
+    if category_token == "known_drone" and category_display in SUBTYPE_DISPLAY:
+        # Worker emits the raw subtype token (e.g. "mavicmini"); admin
+        # translates to maker+model for the UI ("DJI Mavic Mini 2").
+        category_display = SUBTYPE_DISPLAY[category_display]
     return DetectionRow(
         detection_id=detection_id,
         device_id=str(data.get("device_id") or ""),
@@ -216,9 +249,11 @@ def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
         published_at_ms=_int(data.get("published_at_ms")),
         location_lat=_float(location.get("latitude") if isinstance(location, dict) else None),
         location_lon=_float(location.get("longitude") if isinstance(location, dict) else None),
-        subtype_label=str(subtype.get("label") if isinstance(subtype, dict) else ""),
+        subtype_label=subtype_label,
         subtype_confidence=float(subtype.get("confidence") or 0.0)
         if isinstance(subtype, dict) else 0.0,
+        category=category_token,
+        category_display=category_display,
     )
 
 
