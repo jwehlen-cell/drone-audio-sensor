@@ -370,13 +370,41 @@ def _ensure_pb_stubs() -> Path:
 # the trained ERAU subtype head. The parameter tuples are (fundamental Hz,
 # [(harmonic_multiplier, amplitude), ...], AM rate Hz, AM depth, noise amp).
 # These are not physical models of the drones; they're synthetic signals that
-# happen to land near each subtype's region of YAMNet-embedding space.
+# happen to land in a drone-positive region of YAMNet-embedding space.
 #
-#   mavic3      => binary ~0.85, subtype mavic3    ~0.82
-#   matrice     => binary ~0.98, subtype matrice   ~0.80
-#   mavicmini   => binary ~1.00, subtype mavicmini ~0.44 (mixed with v3)
-#   unknown     => binary ~0.99, subtype no_drone  ~0.89 (binary fires but
-#                                                    subtype falls through)
+# Historical note: the named-subtype profiles (known-mavic3 / known-matrice /
+# known-mavicmini) were tuned against the original 4-class ERAU-only model
+# and at the time produced their own subtype labels (binary 0.85-1.00,
+# subtype 0.44-0.82 on the named class). After the 2026-05-30 retrain
+# (commit fb10801 — adds the Parrot Bebop class and ~5 k DroneAudioset
+# rotor recordings), the subtype head's bebop region has absorbed
+# essentially the entire simple-harmonic-stack family that this
+# synthesizer produces. Empirical readback at fb10801 (5-seed average,
+# 1-sec frame):
+#
+#   known-mavic3    => binary 1.00, subtype bebop 0.93 (was mavic3 0.82)
+#   known-matrice   => binary 1.00, subtype bebop 0.99 (was matrice 0.80)
+#   known-mavicmini => binary 1.00, subtype bebop 0.97 (was mavicmini 0.44)
+#   known-bebop     => binary 1.00, subtype bebop 0.99 (added in this commit)
+#   unknown-drone   => binary 0.98, subtype no_drone 0.74 (triggers
+#                                                     "Unknown drone" in
+#                                                     the admin UI)
+#
+# So in argosuat right now, the binary pipeline fires reliably and the
+# admin UI sees Parrot Bebop + Unknown drone but not the other three
+# trained subtypes. The named-subtype profiles are kept because they
+# still produce drone-positive signals (useful for the binary head's
+# operational telemetry) and because their names document the original
+# intent, but they no longer assert what the classifier will return.
+#
+# A wider sweep at fb10801 found no simple-synth parameters in the
+# (fundamental Hz, harmonic stack, AM rate, AM depth, noise amp) family
+# that hit matrice / mavic3 / mavicmini / mambo at top-1. To exercise
+# those classes end-to-end the simulator would need to switch from
+# pure synthesis to streaming real WAVs (e.g. clips from
+# data/extra_raw/DroneAudioDataset/Multiclass_Drone_Audio/{bebop_1,
+# membo_1}/ for Parrot, or the visualization repo for DJI). That
+# changeover is intentionally NOT in this commit.
 _DRONE_PROFILES: tuple[tuple[str, float, list[tuple[int, float]], float, float, float], ...] = (
     ("known-mavic3",
      160.0, [(1, 0.30), (2, 0.20), (3, 0.12), (4, 0.06)], 14.0, 0.50, 0.12),
@@ -384,15 +412,21 @@ _DRONE_PROFILES: tuple[tuple[str, float, list[tuple[int, float]], float, float, 
      280.0, [(1, 0.30), (2, 0.16), (3, 0.08)],            28.0, 0.60, 0.14),
     ("known-mavicmini",
      190.0, [(1, 0.20), (2, 0.15)],                       12.0, 0.40, 0.20),
+    ("known-bebop",
+     110.0, [(1, 0.30), (2, 0.22), (3, 0.14), (4, 0.08)], 13.0, 0.50, 0.12),
     ("unknown-drone",
      180.0, [(1, 0.30), (2, 0.22), (3, 0.12)],            15.0, 0.35, 0.05),
 )
 
-# How frequently each profile is chosen per drone cycle.
+# How frequently each profile is chosen per drone cycle. The 4 known
+# profiles get equal weight and the unknown gets 2 so it shows up
+# regularly enough to exercise the "Unknown drone" category in the
+# admin UI without dominating the trained-class signal.
 _DRONE_PROFILE_WEIGHTS = {
     "known-mavic3":    3,
     "known-matrice":   3,
     "known-mavicmini": 3,
+    "known-bebop":     3,
     "unknown-drone":   2,
 }
 
