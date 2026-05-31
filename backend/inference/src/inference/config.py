@@ -57,6 +57,21 @@ class Settings(BaseSettings):
     health_host: str = "0.0.0.0"
     health_port: int = 8080
 
+    # Watchdog: if the worker hasn't processed a frame in this many
+    # seconds, log a critical event and exit the process so Cloud Run
+    # replaces the container. Catches the silent-hang failure mode
+    # observed 2026-05-31 where the Redis stream consumer blocked
+    # while the HTTP /healthz probe kept returning 200 (separate
+    # thread), so Cloud Run never knew to replace the instance.
+    #
+    # Default 300 s is well above the simulator's 3-min cycle but well
+    # below an acceptable downtime window. Set to 0 to disable (e.g.
+    # for environments with long idle periods between bursts).
+    watchdog_stall_seconds: int = 300
+    # How often the watchdog wakes up to check liveness. Auto-derived
+    # from watchdog_stall_seconds if left at the default 0.
+    watchdog_check_interval_seconds: int = 0
+
     log_level: str = "INFO"
     structured_logs: bool = True
     cloud_logging: bool = False

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 
 import structlog
 
@@ -27,6 +29,12 @@ class InferenceWorker:
         self._ready = False
         self._frames_processed = 0
         self._detections_emitted = 0
+        # Watchdog state. ``_last_frame_at`` is reset to ``time.monotonic()``
+        # when the worker becomes ready and every time a frame is
+        # processed. The watchdog loop wakes periodically and exits
+        # the process if the gap exceeds the configured threshold.
+        self._last_frame_at: float = 0.0
+        self._watchdog_task: asyncio.Task[None] | None = None
 
     @property
     def ready(self) -> bool:
@@ -37,7 +45,44 @@ class InferenceWorker:
         await asyncio.to_thread(self._model.load)
         self._ready = True
         log.info("worker_ready")
+        self._last_frame_at = time.monotonic()
+        if settings.watchdog_stall_seconds > 0:
+            self._watchdog_task = asyncio.create_task(self._watchdog_loop())
         await self._consumer.run(self._handle_frame)
+
+    async def _watchdog_loop(self) -> None:
+        """Force-exit the process if no frame has been processed in
+        ``settings.watchdog_stall_seconds``. Cloud Run will replace
+        the container — which the HTTP ``/healthz`` probe cannot
+        trigger because it's a separate thread that keeps returning
+        200 even when the Redis stream consumer thread is blocked on
+        a dropped socket.
+        """
+        stall_threshold = settings.watchdog_stall_seconds
+        check_interval = settings.watchdog_check_interval_seconds or max(
+            30, stall_threshold // 4
+        )
+        log.info(
+            "worker_watchdog_started",
+            stall_threshold_seconds=stall_threshold,
+            check_interval_seconds=check_interval,
+        )
+        while True:
+            await asyncio.sleep(check_interval)
+            stall = time.monotonic() - self._last_frame_at
+            if stall > stall_threshold:
+                log.critical(
+                    "worker_watchdog_stall",
+                    stall_seconds=int(stall),
+                    threshold_seconds=stall_threshold,
+                    frames_processed=self._frames_processed,
+                    detections_emitted=self._detections_emitted,
+                )
+                # Bypass the asyncio shutdown path — the worker thread
+                # is presumed wedged, so an orderly ``stop()`` would
+                # likely hang too. Cloud Run treats a non-zero exit
+                # as a crash and spawns a replacement.
+                os._exit(1)
 
     async def _handle_frame(self, frame: FrameInput) -> None:
         score = await asyncio.to_thread(
@@ -53,6 +98,7 @@ class InferenceWorker:
             auxiliary_score=score.auxiliary_score,
         )
         self._frames_processed += 1
+        self._last_frame_at = time.monotonic()
 
         trigger, avg, peak, over = evaluate(buffer)
         if not trigger:
@@ -76,6 +122,8 @@ class InferenceWorker:
 
     async def stop(self) -> None:
         log.info("worker_stopping", frames=self._frames_processed, detections=self._detections_emitted)
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
         self._consumer.stop()
         await self._consumer.close()
         await self._detection_state.close()
