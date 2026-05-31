@@ -447,8 +447,8 @@ def _pick_drone_profile() -> tuple[str, float, list[tuple[int, float]], float, f
 # below, because the retrained classifier collapses every parameter
 # combination of the simple synthesizer onto the bebop region. With
 # real audio we exercise the full label set the model actually knows
-# (Parrot Bebop, Parrot Mambo, DJI Mavic Mini 2) plus a steady stream
-# of untrained DJI clips that surface as "Unknown drone".
+# (Parrot Bebop, Parrot Mambo) plus a steady stream of untrained DJI
+# clips that surface as "Unknown drone".
 #
 # Each entry: (label, glob pattern relative to repo root, weight).
 # The pool of (label, wav_path) tuples is built once per cycle; each
@@ -462,13 +462,19 @@ _REAL_AUDIO_SOURCES: tuple[tuple[str, str, int], ...] = (
     ("parrot-mambo",
      "data/sim_audio_fixtures/DroneAudioDataset/Multiclass_Drone_Audio/membo_1/*.wav",
      3),
-    ("dji-mavic-mini2",
-     "data/sim_audio_fixtures/drone-visualization/public/droneAudio/DJI_Mavic_Mini2*.wav",
-     3),
     ("dji-untrained",
      "data/sim_audio_fixtures/drone-visualization/public/droneAudio/DJI_*.wav",
-     4),
+     7),
 )
+
+# Vis-repo clips that don't trigger the production K-of-N gate (5
+# frames at threshold 0.5). Excluded so the simulator never streams
+# a drone that would silently miss — operator preference: never miss
+# a drone, even if mis-classified. Re-run /tmp/audit_vis_dji.py after
+# each retrain to refresh this list.
+_VIS_REPO_SILENT_MISSES: frozenset[str] = frozenset({
+    "DJI_Mini3_pro_30.wav",
+})
 
 
 def _list_real_wav_pool() -> dict[str, tuple[int, list[Path]]]:
@@ -478,14 +484,14 @@ def _list_real_wav_pool() -> dict[str, tuple[int, list[Path]]]:
     Weights are per-CATEGORY (not per-WAV), so a category with one file
     has the same chance of being picked as a category with hundreds.
     Inside a category the simulator picks a random WAV with uniform
-    probability."""
+    probability. WAVs in ``_VIS_REPO_SILENT_MISSES`` are filtered out
+    so the simulator never streams a drone that wouldn't trigger the
+    production K-of-N gate."""
     out: dict[str, tuple[int, list[Path]]] = {}
     for label, pattern, weight in _REAL_AUDIO_SOURCES:
         paths: list[Path] = []
         for path in sorted(_REPO_ROOT.glob(pattern)):
-            # Don't double-count the DJI Mavic Mini 2 sample under
-            # dji-untrained — it's already covered by dji-mavic-mini2.
-            if label == "dji-untrained" and "Mavic_Mini2" in path.name:
+            if path.name in _VIS_REPO_SILENT_MISSES:
                 continue
             paths.append(path)
         if paths:
