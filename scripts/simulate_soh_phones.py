@@ -441,6 +441,100 @@ def _pick_drone_profile() -> tuple[str, float, list[tuple[int, float]], float, f
     return _DRONE_PROFILES[0]
 
 
+# Real-WAV streaming. When the sim VM startup script clones the two
+# upstream audio repos under data/sim_audio_fixtures/, the simulator
+# prefers playing those real recordings over the synthetic profiles
+# below, because the retrained classifier collapses every parameter
+# combination of the simple synthesizer onto the bebop region. With
+# real audio we exercise the full label set the model actually knows
+# (Parrot Bebop, Parrot Mambo, DJI Mavic Mini 2) plus a steady stream
+# of untrained DJI clips that surface as "Unknown drone".
+#
+# Each entry: (label, glob pattern relative to repo root, weight).
+# The pool of (label, wav_path) tuples is built once per cycle; each
+# cycle picks one weighted-random tuple, reads the WAV, and streams it
+# as the burst audio.
+_REPO_ROOT = Path(__file__).parent.parent
+_REAL_AUDIO_SOURCES: tuple[tuple[str, str, int], ...] = (
+    ("parrot-bebop",
+     "data/sim_audio_fixtures/DroneAudioDataset/Multiclass_Drone_Audio/bebop_1/*.wav",
+     3),
+    ("parrot-mambo",
+     "data/sim_audio_fixtures/DroneAudioDataset/Multiclass_Drone_Audio/membo_1/*.wav",
+     3),
+    ("dji-mavic-mini2",
+     "data/sim_audio_fixtures/drone-visualization/public/droneAudio/DJI_Mavic_Mini2*.wav",
+     3),
+    ("dji-untrained",
+     "data/sim_audio_fixtures/drone-visualization/public/droneAudio/DJI_*.wav",
+     4),
+)
+
+
+def _list_real_wav_pool() -> dict[str, tuple[int, list[Path]]]:
+    """Build ``{category_label: (weight, [wav_path, ...])}`` from on-disk
+    fixtures. Empty dict = no fixtures present, falls back to synth.
+
+    Weights are per-CATEGORY (not per-WAV), so a category with one file
+    has the same chance of being picked as a category with hundreds.
+    Inside a category the simulator picks a random WAV with uniform
+    probability."""
+    out: dict[str, tuple[int, list[Path]]] = {}
+    for label, pattern, weight in _REAL_AUDIO_SOURCES:
+        paths: list[Path] = []
+        for path in sorted(_REPO_ROOT.glob(pattern)):
+            # Don't double-count the DJI Mavic Mini 2 sample under
+            # dji-untrained — it's already covered by dji-mavic-mini2.
+            if label == "dji-untrained" and "Mavic_Mini2" in path.name:
+                continue
+            paths.append(path)
+        if paths:
+            out[label] = (weight, paths)
+    return out
+
+
+def _pick_real_wav() -> tuple[str, Path] | None:
+    pool = _list_real_wav_pool()
+    if not pool:
+        return None
+    categories = []
+    for label, (weight, _paths) in pool.items():
+        categories.extend([label] * weight)
+    label = random.choice(categories)
+    return label, random.choice(pool[label][1])
+
+
+def _read_wav_as_pcm16_frames(
+    wav_path: Path, frame_seconds: int, frame_count: int
+) -> list[bytes]:
+    """Read a WAV file, downmix to mono, resample to 16 kHz, then return
+    ``frame_count`` separate PCM16 little-endian byte buffers each
+    ``frame_seconds`` long. Loops the source audio if it's shorter than
+    the requested total duration; truncates if longer."""
+    import soundfile as sf
+    import numpy as np
+    audio, sr = sf.read(str(wav_path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    if sr != AUDIO_BURST_SAMPLE_RATE:
+        from math import gcd
+        from scipy.signal import resample_poly
+        g = gcd(int(sr), AUDIO_BURST_SAMPLE_RATE)
+        audio = resample_poly(
+            audio, AUDIO_BURST_SAMPLE_RATE // g, int(sr) // g
+        ).astype(np.float32)
+    target = AUDIO_BURST_SAMPLE_RATE * frame_seconds * frame_count
+    if audio.size >= target:
+        audio = audio[:target]
+    else:
+        reps = (target + audio.size - 1) // audio.size
+        audio = np.tile(audio, reps)[:target]
+    audio = np.clip(audio, -1.0, 1.0)
+    pcm16 = (audio * 32767).astype(np.int16).tobytes()
+    chunk_bytes = AUDIO_BURST_SAMPLE_RATE * frame_seconds * 2
+    return [pcm16[i * chunk_bytes : (i + 1) * chunk_bytes] for i in range(frame_count)]
+
+
 def _make_drone_buzz_pcm16(seconds: int, profile: tuple | None = None) -> bytes:
     """Generate a synthetic drone-like PCM16 buffer using one of the empirically-
     tuned profiles. If a profile is not passed, picks one at random per the
@@ -482,6 +576,7 @@ def _stream_audio_burst_for_phone(
     frame_count: int,
     is_drone: bool,
     drone_profile: tuple | None = None,
+    drone_wav: Path | None = None,
 ) -> tuple[str, bool, str]:
     """Open a single gRPC bidi stream, push a handshake + frame_count audio
     frames, then close. Returns (device_id, ok, detail)."""
@@ -493,10 +588,15 @@ def _stream_audio_burst_for_phone(
     frame_seconds = AUDIO_BURST_FRAME_SECONDS
 
     if is_drone:
-        pcm_chunks = [
-            _make_drone_buzz_pcm16(frame_seconds, profile=drone_profile)
-            for _ in range(frame_count)
-        ]
+        if drone_wav is not None:
+            pcm_chunks = _read_wav_as_pcm16_frames(
+                drone_wav, frame_seconds, frame_count
+            )
+        else:
+            pcm_chunks = [
+                _make_drone_buzz_pcm16(frame_seconds, profile=drone_profile)
+                for _ in range(frame_count)
+            ]
     else:
         pcm_chunks = [_make_noise_pcm16(frame_seconds) for _ in range(frame_count)]
 
@@ -592,11 +692,23 @@ def run_audio_burst_cycle(
     _ensure_pb_stubs()
     target, use_tls = _parse_gateway_target(gateway_url)
     drone_idx = random.randrange(len(phones))
-    drone_profile = _pick_drone_profile()
+
+    # Prefer real-WAV streaming if the sim VM's startup script has
+    # cloned the audio fixtures; fall back to synthesis otherwise.
+    real_pick = _pick_real_wav()
+    if real_pick is not None:
+        wav_label, wav_path = real_pick
+        drone_profile = None
+        drone_wav: Path | None = wav_path
+        source_desc = f"real:{wav_label}/{wav_path.name}"
+    else:
+        drone_profile = _pick_drone_profile()
+        drone_wav = None
+        source_desc = f"synth:{drone_profile[0]}"
 
     print(
         f"audio-burst: gateway={target} tls={use_tls} frames={frame_count} "
-        f"drone_sensor={phones[drone_idx][0]} drone_profile={drone_profile[0]}",
+        f"drone_sensor={phones[drone_idx][0]} source={source_desc}",
         flush=True,
     )
 
@@ -615,6 +727,7 @@ def run_audio_burst_cycle(
                     frame_count=frame_count,
                     is_drone=(i == drone_idx),
                     drone_profile=drone_profile if i == drone_idx else None,
+                    drone_wav=drone_wav if i == drone_idx else None,
                 )
             )
         for fut in concurrent.futures.as_completed(futures):

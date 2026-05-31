@@ -36,6 +36,30 @@ else
     git -C "$INSTALL_DIR" fetch --depth=1 origin main
     git -C "$INSTALL_DIR" reset --hard origin/main
 fi
+
+# Audio fixtures for the simulator's real-WAV streaming mode. The
+# saraalemadi DroneAudioDataset is 1 GB total because of its ESC-50
+# noise pool, so we sparse-checkout only the two multiclass drone
+# folders we actually use (bebop_1 + membo_1, ~40 MB combined).
+# drone-visualization is ~53 MB, small enough for a full clone.
+FIXTURES_DIR="$INSTALL_DIR/data/sim_audio_fixtures"
+mkdir -p "$FIXTURES_DIR"
+if [ ! -d "$FIXTURES_DIR/DroneAudioDataset/.git" ]; then
+    rm -rf "$FIXTURES_DIR/DroneAudioDataset"
+    git clone --depth 1 --filter=blob:none --sparse \
+        https://github.com/saraalemadi/DroneAudioDataset.git \
+        "$FIXTURES_DIR/DroneAudioDataset"
+    git -C "$FIXTURES_DIR/DroneAudioDataset" sparse-checkout set \
+        Multiclass_Drone_Audio/bebop_1 \
+        Multiclass_Drone_Audio/membo_1
+fi
+if [ ! -d "$FIXTURES_DIR/drone-visualization/.git" ]; then
+    rm -rf "$FIXTURES_DIR/drone-visualization"
+    git clone --depth 1 \
+        https://github.com/mackenzie-jane/drone-visualization.git \
+        "$FIXTURES_DIR/drone-visualization"
+fi
+
 chown -R drone-sim:drone-sim "$INSTALL_DIR"
 
 VENV="$INSTALL_DIR/.venv"

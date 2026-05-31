@@ -8,3 +8,8 @@ grpcio>=1.68
 grpcio-tools>=1.68
 numpy>=1.26,<3
 protobuf>=4.25,<6
+# Real-WAV streaming for `--audio-burst`. The sim VM's startup script
+# clones the upstream WAV repos under data/sim_audio_fixtures/, and the
+# simulator reads + resamples them per cycle.
+soundfile>=0.12
+scipy>=1.11

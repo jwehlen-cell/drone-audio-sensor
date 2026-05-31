@@ -48,3 +48,7 @@ backend/gateway/proto_gen/
 *.crt
 .env
 .env.local
+teardown_export_*/
+
+# Sim VM clones the upstream WAV fixtures into this dir at startup.
+data/sim_audio_fixtures/
