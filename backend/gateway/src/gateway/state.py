@@ -103,18 +103,26 @@ class DeviceStateStore:
         sample_rate_hz: int,
         pcm16_mono: bytes,
         site_label: str,
+        codec: str = "",
     ) -> None:
+        # The gateway is a pass-through for the audio payload. It never
+        # decodes; the inference worker handles ``codec`` before YAMNet.
+        # Storing the compressed bytes here also shrinks the Redis stream
+        # footprint linearly with the compression ratio.
+        fields: dict[str, object] = {
+            "d": device_id,
+            "ses": session_id,
+            "s": str(sequence),
+            "t": str(capture_timestamp_ms),
+            "r": str(sample_rate_hz),
+            "l": site_label,
+            "p": pcm16_mono,
+        }
+        if codec:
+            fields["c"] = codec
         await self._client.xadd(
             settings.frame_stream_key,
-            {
-                "d": device_id,
-                "ses": session_id,
-                "s": str(sequence),
-                "t": str(capture_timestamp_ms),
-                "r": str(sample_rate_hz),
-                "l": site_label,
-                "p": pcm16_mono,
-            },
+            fields,
             maxlen=settings.frame_stream_maxlen,
             approximate=True,
         )

@@ -264,6 +264,7 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
                             sample_rate_hz=int(frame.sample_rate_hz),
                             pcm16_mono=frame.pcm16_mono,
                             site_label=handshake.assigned_site_label,
+                            codec=frame.codec,
                         )
                     if (
                         int(frame.sequence_number) - last_acked_seq

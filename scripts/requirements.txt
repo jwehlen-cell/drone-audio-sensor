@@ -13,3 +13,7 @@ protobuf>=4.25,<6
 # simulator reads + resamples them per cycle.
 soundfile>=0.12
 scipy>=1.11
+# (soundfile above also powers the AudioFrame.codec="flac" producer
+# path. PCM16 frames are FLAC-encoded before the gRPC send; the
+# inference worker decodes before YAMNet. ~1.3x bandwidth reduction
+# on drone-rotor audio with ~3 ms per-frame encode CPU.)

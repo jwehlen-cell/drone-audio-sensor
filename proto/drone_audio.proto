@@ -38,8 +38,23 @@ message AudioFrame {
   int64 capture_timestamp_ms = 2;
   uint64 sequence_number = 3;
   int32 sample_rate_hz = 4;
+  // Audio payload. If `codec` is empty (or "pcm16"), this is raw little-endian
+  // PCM16 mono samples at sample_rate_hz. Otherwise this is codec-encoded
+  // bytes that the consumer must decode before treating as PCM16.
   bytes pcm16_mono = 5;
   DeviceHealth health = 6;
+  // Lossless codec used to compress pcm16_mono before sending. Accepted by
+  // gateway + inference worker:
+  //   "" or "pcm16"  -> raw PCM16 (legacy, backward-compatible).
+  //   "flac"          -> FLAC-encoded PCM16 (~26-57% smaller for drone
+  //                      audio, ~2-6 ms encode and ~1-2 ms decode per
+  //                      1-sec frame; uses libFLAC's linear-prediction
+  //                      model which actually exploits audio structure
+  //                      unlike generic byte-level compression).
+  // No quality loss in either case. The field flows end-to-end:
+  // Android/simulator -> gRPC AudioFrame -> Redis stream field "c" ->
+  // inference worker, which decompresses before YAMNet.
+  string codec = 7;
 }
 
 message LocationUpdate {

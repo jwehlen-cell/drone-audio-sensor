@@ -122,6 +122,9 @@ def _decode_frame(fields: dict) -> FrameInput | None:
             sample_rate_hz=int(get_str(b"r") or "16000"),
             site_label=get_str(b"l"),
             pcm16_mono=bytes(pcm),
+            # Field absent for legacy raw-PCM16 producers; codec="" tells
+            # the worker to pass the bytes straight to YAMNet.
+            codec=get_str(b"c"),
         )
     except Exception as e:  # noqa: BLE001
         log.warning("frame_decode_failed", error=str(e))

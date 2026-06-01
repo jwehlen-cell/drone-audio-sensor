@@ -23,6 +23,11 @@ class FrameInput:
     sample_rate_hz: int
     site_label: str
     pcm16_mono: bytes
+    # Lossless codec applied to pcm16_mono before transmission. Empty
+    # string and "pcm16" both mean raw PCM16 (legacy). "zstd" means the
+    # bytes are zstandard-compressed PCM16 and must be decompressed
+    # before feeding YAMNet.
+    codec: str = ""
 
 
 @dataclass

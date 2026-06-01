@@ -20,6 +20,26 @@ from .stream_consumer import FrameStreamConsumer
 log = structlog.get_logger(__name__)
 
 
+def _decode_payload(pcm16_mono: bytes, codec: str) -> bytes:
+    """Lossless codec dispatch. Empty or "pcm16" returns the bytes
+    unchanged; "flac" decodes FLAC and returns raw little-endian PCM16
+    bytes. Any other codec name raises so we don't silently feed garbage
+    to YAMNet."""
+    if not codec or codec == "pcm16":
+        return pcm16_mono
+    if codec == "flac":
+        import io
+        import soundfile as sf  # local imports keep cold-start cost off
+                                # the critical path for legacy raw-PCM frames
+        audio, _sr = sf.read(io.BytesIO(pcm16_mono), dtype="int16")
+        if audio.ndim > 1:
+            # libsndfile downmix safety: average across channels if the
+            # producer sent multichannel (Android can in some configs).
+            audio = audio.mean(axis=1).astype("int16")
+        return audio.tobytes()
+    raise ValueError(f"unsupported audio codec: {codec!r}")
+
+
 class InferenceWorker:
     def __init__(self) -> None:
         self._model = YAMNetModel()
@@ -85,9 +105,10 @@ class InferenceWorker:
                 os._exit(1)
 
     async def _handle_frame(self, frame: FrameInput) -> None:
+        pcm = await asyncio.to_thread(_decode_payload, frame.pcm16_mono, frame.codec)
         score = await asyncio.to_thread(
             self._model.infer_pcm16,
-            frame.pcm16_mono,
+            pcm,
             frame.sample_rate_hz,
         )
         buffer = await self._detection_state.append_score(

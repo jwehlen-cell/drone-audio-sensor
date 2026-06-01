@@ -62,6 +62,9 @@ class StreamingClient(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Lazy because we need AppConfig before we can read sampleRateHz, and
+    // we don't want to construct the encoder until first audio frame.
+    private var flacEncoder: FlacEncoder? = null
     private var runJob: Job? = null
     private val reconnectPolicy = ReconnectPolicy()
 
@@ -291,12 +294,19 @@ class StreamingClient(
 
     private fun buildAudioMessage(frame: CapturedFrame): ClientStreamMessage {
         val deviceId = DeviceIdentity.get(context).deviceId
+        // Lazy-construct the FLAC encoder against the captured sample
+        // rate. Falls back to raw PCM16 (codec="") on devices without
+        // a working MediaCodec FLAC encoder — the inference worker
+        // accepts both.
+        val encoder = flacEncoder ?: FlacEncoder(frame.sampleRateHz).also { flacEncoder = it }
+        val (payload, codec) = encoder.encode(frame.pcm16Mono)
         val audio = AudioFrame.newBuilder()
             .setDeviceId(deviceId)
             .setCaptureTimestampMs(frame.captureTimestampMs)
             .setSequenceNumber(frame.sequenceNumber)
             .setSampleRateHz(frame.sampleRateHz)
-            .setPcm16Mono(ByteString.copyFrom(frame.pcm16Mono))
+            .setPcm16Mono(ByteString.copyFrom(payload))
+            .setCodec(codec)
             .build()
         return ClientStreamMessage.newBuilder().setAudioFrame(audio).build()
     }
