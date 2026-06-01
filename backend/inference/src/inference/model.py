@@ -150,6 +150,14 @@ class YAMNetModel:
             subtype_labels=self._subtype_labels,
         )
 
+    # YAMNet's internal window is 0.96 s (15,360 samples at 16 kHz) with
+    # a 0.48 s hop. Inputs shorter than that produce zero embeddings;
+    # we pad with trailing silence so a short frame still produces one
+    # score. Longer inputs are handled natively — YAMNet emits multiple
+    # embeddings which we mean-pool below — so we don't cap the upper
+    # length here.
+    _YAMNET_MIN_SAMPLES = 15_360
+
     def infer_pcm16(self, pcm16_bytes: bytes, sample_rate_hz: int) -> FrameScore:
         if (
             self._yamnet is None
@@ -163,6 +171,11 @@ class YAMNetModel:
         waveform = np.frombuffer(pcm16_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         if waveform.size == 0:
             return FrameScore(0.0, 0.0, {})
+        if waveform.size < self._YAMNET_MIN_SAMPLES:
+            waveform = np.pad(
+                waveform,
+                (0, self._YAMNET_MIN_SAMPLES - waveform.size),
+            )
 
         scores_tensor, embeddings_tensor, _spectrogram = self._yamnet(waveform)
 

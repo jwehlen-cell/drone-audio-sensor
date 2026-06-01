@@ -20,23 +20,42 @@ from .stream_consumer import FrameStreamConsumer
 log = structlog.get_logger(__name__)
 
 
-def _decode_payload(pcm16_mono: bytes, codec: str) -> bytes:
-    """Lossless codec dispatch. Empty or "pcm16" returns the bytes
-    unchanged; "flac" decodes FLAC and returns raw little-endian PCM16
-    bytes. Any other codec name raises so we don't silently feed garbage
-    to YAMNet."""
+def _decode_payload(
+    pcm16_mono: bytes, codec: str, frame_sample_rate_hz: int
+) -> tuple[bytes, int]:
+    """Lossless codec dispatch. Returns ``(pcm16_le_bytes, sample_rate_hz)``.
+
+    Behavior per codec:
+      ""/"pcm16" -> bytes returned unchanged; sample rate comes from
+                    the Redis stream metadata (i.e. what the producer
+                    said the frame was captured at).
+      "flac"     -> libsndfile decodes FLAC; sample rate comes from the
+                    FLAC stream's own STREAMINFO block (authoritative).
+      "wav"      -> libsndfile decodes WAV (RIFF/PCM or any other PCM
+                    subtype it can read); sample rate from the WAV
+                    "fmt " chunk (authoritative).
+
+    For wav/flac we trust the in-stream header over the frame metadata
+    because the file is self-describing. Multichannel sources are
+    downmixed to mono via simple averaging so YAMNet always sees a
+    single channel.
+
+    Any other codec name raises so we don't silently feed garbage to
+    YAMNet.
+    """
     if not codec or codec == "pcm16":
-        return pcm16_mono
-    if codec == "flac":
+        return pcm16_mono, frame_sample_rate_hz
+    if codec in ("flac", "wav"):
         import io
         import soundfile as sf  # local imports keep cold-start cost off
                                 # the critical path for legacy raw-PCM frames
-        audio, _sr = sf.read(io.BytesIO(pcm16_mono), dtype="int16")
+        audio, sr = sf.read(io.BytesIO(pcm16_mono), dtype="int16")
         if audio.ndim > 1:
             # libsndfile downmix safety: average across channels if the
-            # producer sent multichannel (Android can in some configs).
+            # producer sent multichannel (Android in some configs, or a
+            # NiFi-supplied stereo WAV).
             audio = audio.mean(axis=1).astype("int16")
-        return audio.tobytes()
+        return audio.tobytes(), int(sr)
     raise ValueError(f"unsupported audio codec: {codec!r}")
 
 
@@ -105,11 +124,19 @@ class InferenceWorker:
                 os._exit(1)
 
     async def _handle_frame(self, frame: FrameInput) -> None:
-        pcm = await asyncio.to_thread(_decode_payload, frame.pcm16_mono, frame.codec)
+        # decode_payload may override the sample rate when the codec
+        # carries its own header (wav/flac); for raw PCM the frame
+        # metadata is authoritative.
+        pcm, sample_rate_hz = await asyncio.to_thread(
+            _decode_payload,
+            frame.pcm16_mono,
+            frame.codec,
+            frame.sample_rate_hz,
+        )
         score = await asyncio.to_thread(
             self._model.infer_pcm16,
             pcm,
-            frame.sample_rate_hz,
+            sample_rate_hz,
         )
         buffer = await self._detection_state.append_score(
             frame.device_id,
