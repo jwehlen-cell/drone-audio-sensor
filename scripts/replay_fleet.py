@@ -260,6 +260,8 @@ def stream_one_frame(
     samples_int16: np.ndarray,
     sample_rate_hz: int,
     sequence_number: int,
+    battery_percent: int,
+    network_type_enum: int,
 ) -> tuple[bool, int, int]:
     """Open a fresh gRPC stream, push handshake + one audio frame, close.
     Returns ``(ok, payload_bytes, encode_us)``.
@@ -313,6 +315,19 @@ def stream_one_frame(
                     auth_token_id="simulator",
                     sample_rate_hz=sample_rate_hz,
                     frame_duration_ms=config.cadence_s * 1000,
+                    # State-of-health: each station picks battery +
+                    # network_type once at startup and the harness
+                    # decays battery slowly, so the admin dashboard
+                    # shows realistic per-device telemetry instead of
+                    # blank fields.
+                    health=pb.DeviceHealth(
+                        battery_percent=battery_percent,
+                        charging=False,
+                        network_type=network_type_enum,
+                        thermal_state=pb.THERMAL_STATE_NOMINAL,
+                        app_version="replay-fleet-1.0",
+                        microphone_active=True,
+                    ),
                 )
             )
             yield pb.ClientStreamMessage(
@@ -355,10 +370,26 @@ def replay_station(
     if stop_event.is_set():
         return
 
+    # Sticky per-station SOH state. The user wants the admin dashboard
+    # to show realistic battery + network instead of blank fields:
+    #   battery_percent: random 45–95 at startup, decays 1 % every
+    #                    ~60 s of wall-clock so the dashboard isn't
+    #                    static (clamped at 5 % so a dying phone
+    #                    doesn't flat-line to 0).
+    #   network_type:    50/50 wifi vs cellular LTE — kept sticky so
+    #                    a station doesn't appear to roam every cycle.
+    #                    Pb proto enums: 1=WIFI, 2=CELLULAR_LTE.
+    battery_percent = random.randint(45, 95)
+    network_type_enum = random.choice([1, 2])  # WIFI / CELLULAR_LTE
+    battery_started_at = time.monotonic()
+
     sequence = 0
     while not stop_event.is_set():
         cycle_start = time.monotonic()
         sequence += 1
+        # Slow battery drain: -1 % per 60 s of wall-clock, clamped at 5 %.
+        drain = int((time.monotonic() - battery_started_at) / 60.0)
+        current_battery = max(5, battery_percent - drain)
         # Chunk size == cadence: a 30 s-cadence station sends 30 s of
         # audio every 30 s; a 1 s-cadence station sends 1 s every 1 s.
         # The clip auto-wraps if a chunk crosses the loop boundary.
@@ -370,6 +401,8 @@ def replay_station(
             samples_int16=samples,
             sample_rate_hz=clock.sr,
             sequence_number=sequence,
+            battery_percent=current_battery,
+            network_type_enum=network_type_enum,
         )
         with stats_lock:
             if ok:
