@@ -77,26 +77,32 @@ from simulate_soh_phones import (  # noqa: E402
 # Configuration — edit this table to reshape the fleet
 # ---------------------------------------------------------------------------
 
-# Each entry: (device_id, cadence_seconds, codec).
+# Each entry: (device_id, cadence_seconds, codec, latitude, longitude).
 # The first 10 device IDs map to the already-provisioned simulator
-# phones in argosuat (same public keys, locations, site labels). The
-# codec values must match what the inference worker accepts ("wav",
-# "flac", or "pcm16" / "" for raw). Reshape by editing this tuple.
-STATIONS_DEFAULT: tuple[tuple[str, int, str], ...] = (
+# phones in argosuat (same public keys, etc.). Codec must match what
+# the inference worker accepts ("wav", "flac", "pcm16" / "" for raw).
+# Lat/lon distribute the 10 stations along the Atlantic coast of
+# Patrick SFB (Cocoa Beach, FL): a ~5 km north-south line from the
+# southern base perimeter (28.215 N) to the northern perimeter
+# (28.260 N), all on the shoreline at ~-80.6005 W. The replay
+# harness includes location in every handshake so the gateway/
+# Firestore admin map reflect coast positions, not the prior
+# Palm Beach test fixtures.
+STATIONS_DEFAULT: tuple[tuple[str, int, str, float, float], ...] = (
     # 5 stations at 30 s (3 wav, 2 flac)
-    ("DRONE-SENSOR-001", 30, "wav"),
-    ("DRONE-SENSOR-002", 30, "wav"),
-    ("DRONE-SENSOR-003", 30, "wav"),
-    ("DRONE-SENSOR-004", 30, "flac"),
-    ("DRONE-SENSOR-005", 30, "flac"),
+    ("DRONE-SENSOR-001", 30, "wav",  28.2150, -80.6005),  # south end
+    ("DRONE-SENSOR-002", 30, "wav",  28.2200, -80.6005),
+    ("DRONE-SENSOR-003", 30, "wav",  28.2250, -80.6005),
+    ("DRONE-SENSOR-004", 30, "flac", 28.2300, -80.6005),
+    ("DRONE-SENSOR-005", 30, "flac", 28.2350, -80.6005),  # Patrick center
     # 4 stations at 5 s (2 wav, 2 flac)
-    ("DRONE-SENSOR-006",  5, "wav"),
-    ("DRONE-SENSOR-007",  5, "wav"),
-    ("DRONE-SENSOR-008",  5, "flac"),
-    ("DRONE-SENSOR-009",  5, "flac"),
+    ("DRONE-SENSOR-006",  5, "wav",  28.2400, -80.6005),
+    ("DRONE-SENSOR-007",  5, "wav",  28.2450, -80.6005),
+    ("DRONE-SENSOR-008",  5, "flac", 28.2500, -80.6005),
+    ("DRONE-SENSOR-009",  5, "flac", 28.2550, -80.6005),
     # 1 station at 1 s (flac — the heaviest feed lands on the
     # compressed path so the FLAC decode sees the highest frame rate)
-    ("DRONE-SENSOR-010",  1, "flac"),
+    ("DRONE-SENSOR-010",  1, "flac", 28.2600, -80.6005),  # north end
 )
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -121,6 +127,8 @@ class StationConfig:
     device_id: str
     cadence_s: int
     codec: str
+    latitude: float
+    longitude: float
 
     def cadence_group(self) -> str:
         return f"{self.cadence_s:02d}s"
@@ -276,6 +284,18 @@ def stream_one_frame(
                     device_model="replay-fleet",
                     os_version="harness",
                     assigned_site_label=site_tag,
+                    # Lat/lon goes on every handshake so the gateway
+                    # persists `current_location` and the admin map
+                    # reflects the Patrick SFB coast layout, not stale
+                    # Palm Beach test fixtures.
+                    location=pb.DeviceLocation(
+                        latitude=config.latitude,
+                        longitude=config.longitude,
+                        horizontal_accuracy_meters=5.0,
+                        location_timestamp_ms=now_ms(),
+                        provider="simulator",
+                        status=pb.LOCATION_STATUS_CURRENT,
+                    ),
                     auth_token_id="simulator",
                     sample_rate_hz=sample_rate_hz,
                     frame_duration_ms=1000,
@@ -682,8 +702,11 @@ def main(argv: list[str]) -> int:
     start_ts_ms = int(harness_start_ts * 1000)
 
     stations: dict[str, StationStats] = {}
-    for did, cad, codec in STATIONS_DEFAULT:
-        cfg = StationConfig(device_id=did, cadence_s=cad, codec=codec)
+    for did, cad, codec, lat, lon in STATIONS_DEFAULT:
+        cfg = StationConfig(
+            device_id=did, cadence_s=cad, codec=codec,
+            latitude=lat, longitude=lon,
+        )
         stations[did] = StationStats(config=cfg)
     print(f"Fleet: {len(stations)} stations")
     for s in stations.values():

@@ -49,17 +49,22 @@ AUDIO_BURST_FRAME_SECONDS = 1
 AUDIO_BURST_DEFAULT_FRAMES = 5  # five 1-second frames -> 5 seconds of audio
 PROTO_FILE = Path(__file__).resolve().parent.parent / "proto" / "drone_audio.proto"
 
+# Patrick Space Force Base (Cocoa Beach, FL) Atlantic coast layout.
+# 10 stations distributed ~500 m apart along a ~5 km north-south line at
+# the shoreline (~-80.6005 W). South end at 28.2150 N, north end at
+# 28.2600 N. Replaces the prior Palm Beach test fixtures so admin map +
+# device docs reflect the operational deployment context.
 DEFAULT_PHONE_FIXTURES = (
-    ("DRONE-SENSOR-001", 26.675953893532004, -80.03984234630978, "Southern boundary intersection"),
-    ("DRONE-SENSOR-002", 26.6762, -80.0365, "Approaching Beach Club southern edge"),
-    ("DRONE-SENSOR-003", 26.676944, -80.036167, "East of main house / Tunnel link"),
-    ("DRONE-SENSOR-004", 26.6783, -80.0358, "Northern property line"),
-    ("DRONE-SENSOR-005", 26.677596, -80.036154, "Transitioning to northern neighbor"),
-    ("DRONE-SENSOR-006", 26.676944, -80.036167, "Roadway curving sharply west"),
-    ("DRONE-SENSOR-007", 26.6815, -80.0378, "Mid-curve baseline"),
-    ("DRONE-SENSOR-008", 26.6823, -80.0388, "Northern approach buffer"),
-    ("DRONE-SENSOR-009", 26.6828, -80.0395, "Outer northern perimeter"),
-    ("DRONE-SENSOR-010", 26.677639, -80.039558, "Array termination point"),
+    ("DRONE-SENSOR-001", 28.2150, -80.6005, "Patrick SFB coast - south boundary"),
+    ("DRONE-SENSOR-002", 28.2200, -80.6005, "Patrick SFB coast - south"),
+    ("DRONE-SENSOR-003", 28.2250, -80.6005, "Patrick SFB coast - south central"),
+    ("DRONE-SENSOR-004", 28.2300, -80.6005, "Patrick SFB coast - mid south"),
+    ("DRONE-SENSOR-005", 28.2350, -80.6005, "Patrick SFB coast - center"),
+    ("DRONE-SENSOR-006", 28.2400, -80.6005, "Patrick SFB coast - mid north"),
+    ("DRONE-SENSOR-007", 28.2450, -80.6005, "Patrick SFB coast - north central"),
+    ("DRONE-SENSOR-008", 28.2500, -80.6005, "Patrick SFB coast - north"),
+    ("DRONE-SENSOR-009", 28.2550, -80.6005, "Patrick SFB coast - north boundary"),
+    ("DRONE-SENSOR-010", 28.2600, -80.6005, "Patrick SFB coast - north end"),
 )
 
 
