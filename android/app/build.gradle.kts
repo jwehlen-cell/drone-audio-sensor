@@ -17,9 +17,26 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        buildConfigField("String", "DEFAULT_GRPC_HOST", "\"10.0.2.2\"")
-        buildConfigField("int", "DEFAULT_GRPC_PORT", "50051")
-        buildConfigField("boolean", "DEFAULT_TLS", "false")
+        // Provisioning defaults. Today these are baked at build time via
+        // gradle properties: ./gradlew installDebug -PgrpcHost=... -Psite=...
+        // Future: a QR scanner produces a ProvisioningPayload with the same
+        // fields and calls AppConfig setters — see ProvisioningPayload.kt
+        // for the canonical shape both transports share.
+        val pGrpcHost = (project.findProperty("grpcHost") as String?) ?: "10.0.2.2"
+        val pGrpcPort = (project.findProperty("grpcPort") as String?)?.toInt() ?: 50051
+        val pTls       = (project.findProperty("tls") as String?)?.toBoolean() ?: false
+        val pSite      = (project.findProperty("site") as String?) ?: ""
+        val pSiteLabel = (project.findProperty("siteLabel") as String?) ?: ""
+        val pDeviceId  = (project.findProperty("deviceId") as String?) ?: ""
+        val pJwtAud    = (project.findProperty("jwtAudience") as String?) ?: ""
+
+        buildConfigField("String", "DEFAULT_GRPC_HOST", "\"$pGrpcHost\"")
+        buildConfigField("int",    "DEFAULT_GRPC_PORT", "$pGrpcPort")
+        buildConfigField("boolean","DEFAULT_TLS",       "$pTls")
+        buildConfigField("String", "DEFAULT_SITE",       "\"$pSite\"")
+        buildConfigField("String", "DEFAULT_SITE_LABEL", "\"$pSiteLabel\"")
+        buildConfigField("String", "DEFAULT_DEVICE_ID",  "\"$pDeviceId\"")
+        buildConfigField("String", "DEFAULT_JWT_AUDIENCE","\"$pJwtAud\"")
     }
 
     buildFeatures {

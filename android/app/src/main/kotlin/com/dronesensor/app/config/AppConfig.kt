@@ -30,9 +30,28 @@ class AppConfig private constructor(context: Context) {
             putBoolean(KEY_TLS, value.useTls)
         }
 
+    /**
+     * Free-form per-device tag shown in the admin's "Site" column on
+     * detection rows (e.g. "Patrick (emulator)"). Distinct from
+     * [site] below, which is the grouping key the admin selector uses.
+     */
     var siteLabel: String
-        get() = prefs.getString(KEY_SITE_LABEL, "")!!
+        get() = prefs.getString(KEY_SITE_LABEL, BuildConfig.DEFAULT_SITE_LABEL)!!
         set(value) = prefs.edit { putString(KEY_SITE_LABEL, value) }
+
+    /**
+     * Site grouping key — e.g. "Patrick", "Shaw". The admin UI's top
+     * selector chooses one of these and every view filters by it.
+     * Today this comes from BuildConfig.DEFAULT_SITE (set via the
+     * gradle -Psite=... property at build time); tomorrow a QR scanner
+     * will write the same value here. The handshake doesn't carry
+     * this field today; the device's Firestore registry doc is
+     * pre-populated with the same value so the gateway's merge-on-
+     * handshake doesn't lose it.
+     */
+    var site: String
+        get() = prefs.getString(KEY_SITE, BuildConfig.DEFAULT_SITE)!!
+        set(value) = prefs.edit { putString(KEY_SITE, value) }
 
     /**
      * JWT audience claim, normally the gateway URL. Leaving this blank
@@ -40,7 +59,7 @@ class AppConfig private constructor(context: Context) {
      * pre-provisioning testing).
      */
     var jwtAudience: String
-        get() = prefs.getString(KEY_JWT_AUDIENCE, "")!!
+        get() = prefs.getString(KEY_JWT_AUDIENCE, BuildConfig.DEFAULT_JWT_AUDIENCE)!!
         set(value) = prefs.edit { putString(KEY_JWT_AUDIENCE, value) }
 
     /**
@@ -62,6 +81,16 @@ class AppConfig private constructor(context: Context) {
         get() = prefs.getString(KEY_LAST_REBOOT_REASON, "")!!
         set(value) = prefs.edit { putString(KEY_LAST_REBOOT_REASON, value) }
 
+    /**
+     * True after the app has applied a build-time ProvisioningPayload at
+     * least once. Stops every fresh launch from re-clobbering values
+     * the operator may have updated post-install (e.g. via a future
+     * QR scan that replaces the build-time defaults).
+     */
+    var buildProvisioned: Boolean
+        get() = prefs.getBoolean(KEY_BUILD_PROVISIONED, false)
+        set(value) = prefs.edit { putBoolean(KEY_BUILD_PROVISIONED, value) }
+
     /** Minimum delay between watchdog-driven reboots. */
     val minRebootIntervalMs: Long = 10 * 60 * 1000
 
@@ -77,10 +106,12 @@ class AppConfig private constructor(context: Context) {
         private const val KEY_PORT = "grpc_port"
         private const val KEY_TLS = "grpc_tls"
         private const val KEY_SITE_LABEL = "site_label"
+        private const val KEY_SITE = "site"
         private const val KEY_JWT_AUDIENCE = "jwt_audience"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
         private const val KEY_LAST_REBOOT_MS = "last_reboot_ms"
         private const val KEY_LAST_REBOOT_REASON = "last_reboot_reason"
+        private const val KEY_BUILD_PROVISIONED = "build_provisioned"
 
         @Volatile private var instance: AppConfig? = null
 
