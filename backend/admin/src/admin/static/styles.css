@@ -121,6 +121,25 @@ td.dot::before {
 td.fresh-green::before  { color: var(--green); }
 td.fresh-yellow::before { color: var(--yellow); }
 td.fresh-red::before    { color: var(--red); }
+td.fresh-grey::before   { color: var(--gray); }
+
+/* Refresh-cycle chips at the top of the status page. */
+.chip {
+    display: inline-block;
+    padding: 1px 7px;
+    margin-right: 3px;
+    border-radius: 9999px;
+    background: rgba(127, 127, 127, 0.15);
+    color: inherit;
+    text-decoration: none;
+    font-size: 0.9em;
+}
+.chip:hover { background: rgba(127, 127, 127, 0.30); }
+.chip-active {
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+}
 
 .inline-action {
     display: inline-block;

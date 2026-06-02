@@ -18,11 +18,18 @@
 
 <div class="refresh-bar muted">
     Rendered {{ rendered_at_ms | utc_ms }} UTC
+    · refresh:
+    {% for opt in refresh_options %}
+      {% if refresh_seconds == opt %}
+        <span class="chip chip-active">{{ opt }}s</span>
+      {% else %}
+        <a class="chip" href="?refresh={{ opt }}">{{ opt }}s</a>
+      {% endif %}
+    {% endfor %}
     {% if refresh_seconds and refresh_seconds > 0 %}
-      · auto-refresh every {{ refresh_seconds }}s
-      · <a href="?refresh=off">pause</a>
+      <a class="chip" href="?refresh=off">off</a>
     {% else %}
-      · auto-refresh disabled · <a href="?refresh=30">resume (30s)</a>
+      <span class="chip chip-active">off</span>
     {% endif %}
 </div>
 
@@ -36,6 +43,7 @@
             <span class="map-legend-item"><span class="dot dot-setup_pending"></span> setup_pending</span>
             <span class="map-legend-item"><span class="dot dot-revoked"></span> revoked</span>
             <span class="map-legend-item"><span class="dot dot-detection"></span> detection (last hour)</span>
+            <span class="map-legend-item muted">red dot in table = detection within last {{ recent_detection_red_seconds }}s</span>
             <span class="map-legend-item muted">stale &gt; {{ stale_offline_seconds }}s = greyed</span>
         </div>
     </div>
@@ -64,7 +72,12 @@
                 {% set r = row.registered %}
                 {% set fresh = row.freshness_seconds %}
                 <tr>
-                    <td class="dot {% if fresh is none %}fresh-red{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-red{% endif %}"></td>
+                    {# Red is reserved for "this device fired a detection
+                       in the last `recent_detection_red_seconds`". Otherwise
+                       the dot reflects last-seen freshness: green when
+                       fresh, yellow when stale, grey when offline / no
+                       heartbeat ever received. #}
+                    <td class="dot {% if row.has_recent_detection %}fresh-red{% elif fresh is none %}fresh-grey{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-grey{% endif %}"></td>
                     <td><code>{{ l.device_id }}</code></td>
                     <td>
                         {% if r %}

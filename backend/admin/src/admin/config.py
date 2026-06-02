@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # gives a clear "this station has died" signal.
     stale_warning_seconds: int = 90
     stale_offline_seconds: int = 300
+    # The status page's per-device dot turns RED only when this device
+    # has published a detection within the last
+    # ``recent_detection_red_seconds`` (default 5 min). Freshness now
+    # paints the dot green/yellow/grey instead — red is reserved for
+    # "this station is actively hearing something" so the operator can
+    # spot a hot phone at a glance without scanning the detection list.
+    recent_detection_red_seconds: int = 300
 
     # Detection list window — read from Firestore. Bound by the writer's TTL
     # but we additionally filter so the UI doesn't show >1h hits if TTL
@@ -52,9 +59,10 @@ class Settings(BaseSettings):
     simulator_token: str = ""
 
     # How often the status page meta-refreshes itself (seconds). Set to 0
-    # to disable auto-refresh entirely. Defaults to 30s so dashboards stay
-    # current without a noticeable flicker between refreshes.
-    status_refresh_seconds: int = 30
+    # to disable auto-refresh entirely. Default is 10 s; the operator can
+    # override per-session via the ``?refresh=`` query parameter (chip
+    # row at the top of the page exposes 5 / 10 / 30 / 60 / off).
+    status_refresh_seconds: int = 10
 
     log_level: str = "INFO"
     structured_logs: bool = True

@@ -129,6 +129,15 @@ def build_app() -> FastAPI:
         live = await r.list_live_devices()
         detections = await fs.list_recent_detections()
         device_by_id = {d.device_id: d for d in devices}
+        # The dot column is red iff the device has published a detection
+        # within the last `recent_detection_red_seconds`. Built from the
+        # already-fetched detection list — no extra Firestore round-trip.
+        now_ms_int = int(time.time() * 1000)
+        recent_cutoff_ms = now_ms_int - settings.recent_detection_red_seconds * 1000
+        hot_devices = {
+            d.device_id for d in detections
+            if d.published_at_ms and d.published_at_ms >= recent_cutoff_ms
+        }
         # Join live state with registered state.
         joined = []
         for l in live:
@@ -138,6 +147,7 @@ def build_app() -> FastAPI:
                     "live": l,
                     "registered": registered,
                     "freshness_seconds": _freshness(l.last_seen_ms),
+                    "has_recent_detection": l.device_id in hot_devices,
                 }
             )
         # Pre-bake the map payload here so the template stays JSON-ignorant.
@@ -199,8 +209,12 @@ def build_app() -> FastAPI:
                 "detections": detections,
                 "stale_warning_seconds": settings.stale_warning_seconds,
                 "stale_offline_seconds": settings.stale_offline_seconds,
+                "recent_detection_red_seconds": settings.recent_detection_red_seconds,
                 "refresh_seconds": refresh_seconds,
-                "rendered_at_ms": int(time.time() * 1000),
+                # Operator-facing refresh chips. Order matters — used as
+                # the rendered order in the template.
+                "refresh_options": [5, 10, 30, 60],
+                "rendered_at_ms": now_ms_int,
                 "map_data": {
                     "phones": map_phones,
                     "detections": map_detections,
