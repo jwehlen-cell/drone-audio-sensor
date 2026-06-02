@@ -269,11 +269,11 @@ def stream_one_frame(
     try:
         stub = pb_grpc.DroneAudioStreamStub(channel)
 
-        # The cadence/codec tag goes in assigned_site_label so it
-        # surfaces in the Site column of the admin UI and on every
-        # detection event downstream — that's the field the admin
-        # dashboard renders prominently per detection row.
-        site_tag = f"{config.cadence_s:02d}s/{config.codec}"
+        # The Site column shows the device's original station name with
+        # its cadence + codec in parentheses, so operators can tell at a
+        # glance which station fired AND how it was configured. Example:
+        #   "DRONE-SENSOR-001 (30s/wav)"
+        site_tag = f"{config.device_id} ({config.cadence_s:02d}s/{config.codec})"
 
         def request_iter():
             yield pb.ClientStreamMessage(
