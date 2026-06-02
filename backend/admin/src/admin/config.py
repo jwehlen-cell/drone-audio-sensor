@@ -18,8 +18,14 @@ class Settings(BaseSettings):
     redis_db: int = 0
     device_state_key_prefix: str = "device:"
 
-    # `last_seen` thresholds for dashboard color-coding.
-    stale_warning_seconds: int = 30
+    # `last_seen` thresholds for dashboard color-coding. The warning
+    # threshold must be longer than the slowest expected device cadence
+    # plus a grace period, or slow stations will bounce in and out of
+    # "stale" on every cycle. The replay-fleet's slowest cadence is 30 s
+    # (DRONE-SENSOR-001..005); 90 s = 3 × cadence covers two missed
+    # heartbeats before warning. Offline at 300 s = 10 × cadence still
+    # gives a clear "this station has died" signal.
+    stale_warning_seconds: int = 90
     stale_offline_seconds: int = 300
 
     # Detection list window — read from Firestore. Bound by the writer's TTL
