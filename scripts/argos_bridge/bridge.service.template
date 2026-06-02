@@ -1,0 +1,27 @@
+[Unit]
+Description=Argos UAT pull-based replay bridge (33 SH-* stations)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+User=argos-bridge
+Group=argos-bridge
+WorkingDirectory=@@INSTALL_DIR@@
+Environment=GOOGLE_CLOUD_PROJECT=@@GCP_PROJECT@@
+Environment=BRIDGE_GATEWAY_URL=@@GATEWAY_URL@@
+Environment=BRIDGE_GATEWAY_TLS=true
+ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/argos_bridge/bridge.py
+StandardOutput=append:/var/log/argos-bridge.log
+StandardError=append:/var/log/argos-bridge.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -17,3 +17,11 @@ scipy>=1.11
 # path. PCM16 frames are FLAC-encoded before the gRPC send; the
 # inference worker decodes before YAMNet. ~1.3x bandwidth reduction
 # on drone-rotor audio with ~3 ms per-frame encode CPU.)
+# Argos UAT pull bridge (scripts/argos_bridge/). Reads from prod argos
+# GCS (cross-project, sandbox-only) and loads test-only PKI material
+# out of argosuat Secret Manager. PyJWT is staged for when
+# GATEWAY_REQUIRE_AUTH gets flipped on; the bridge currently doesn't
+# sign.
+google-cloud-storage>=2.16
+google-cloud-secret-manager>=2.20
+PyJWT>=2.8
