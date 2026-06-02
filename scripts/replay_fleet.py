@@ -14,10 +14,12 @@ Design contract
   ``DRONE-SENSOR-001 [30s/wav]`` for reports so you can tell at a
   glance which device is which configuration.
 * A single ``PlaybackClock`` loops the test clip end-to-end forever.
-  Each station pulls the current 1-second frame at its own cadence,
-  encodes per its codec (WAV via libsndfile RIFF, FLAC via libsndfile
-  FLAC stream, raw PCM16 when codec=""), and streams via the proto
-  AudioFrame.codec field added in commit c454345.
+  Each station pulls a ``cadence_s``-long slice (so a 30 s station
+  sends 30 s of audio every 30 s, a 5 s station sends 5 s every 5 s,
+  a 1 s station sends 1 s every second), encodes per its codec (WAV
+  via libsndfile RIFF, FLAC via libsndfile FLAC stream, raw PCM16
+  when codec=""), and streams via the proto AudioFrame.codec field
+  added in commit c454345.
 * Random phase offset within the first cadence per station so they
   aren't sample-aligned.
 * Detection feedback: a separate thread polls the Firestore
@@ -219,19 +221,31 @@ class PlaybackClock:
             wall_ts = time.time()
         return (wall_ts - self.t0) % self.duration_s
 
-    def slice_1s(self, wall_ts: Optional[float] = None) -> np.ndarray:
-        """Return a 1-sec PCM16 slice from the looped clip aligned to
-        the playback position at wall_ts. Wraps around the loop boundary."""
+    def slice(
+        self, duration_s: float, wall_ts: Optional[float] = None
+    ) -> np.ndarray:
+        """Return a ``duration_s``-long PCM16 slice from the looped
+        clip aligned to the playback position at ``wall_ts``. Wraps
+        around the loop boundary; if ``duration_s`` exceeds one full
+        loop, the loop is traversed multiple times so the caller still
+        gets exactly ``duration_s * sr`` samples back."""
         if wall_ts is None:
             wall_ts = time.time()
+        n_samples = int(duration_s * self.sr)
         pos_s = self.position_s(wall_ts)
         start_idx = int(pos_s * self.sr)
-        end_idx = start_idx + self.sr
+        end_idx = start_idx + n_samples
         if end_idx <= self.total_samples:
             return self.audio[start_idx:end_idx]
-        first = self.audio[start_idx:]
-        second = self.audio[: end_idx - self.total_samples]
-        return np.concatenate([first, second])
+        # Wrap (and re-wrap if the request is longer than the loop).
+        chunks = [self.audio[start_idx:]]
+        needed = n_samples - chunks[0].size
+        while needed >= self.total_samples:
+            chunks.append(self.audio)
+            needed -= self.total_samples
+        if needed > 0:
+            chunks.append(self.audio[:needed])
+        return np.concatenate(chunks)
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +312,7 @@ def stream_one_frame(
                     ),
                     auth_token_id="simulator",
                     sample_rate_hz=sample_rate_hz,
-                    frame_duration_ms=1000,
+                    frame_duration_ms=config.cadence_s * 1000,
                 )
             )
             yield pb.ClientStreamMessage(
@@ -345,7 +359,10 @@ def replay_station(
     while not stop_event.is_set():
         cycle_start = time.monotonic()
         sequence += 1
-        samples = clock.slice_1s()
+        # Chunk size == cadence: a 30 s-cadence station sends 30 s of
+        # audio every 30 s; a 1 s-cadence station sends 1 s every 1 s.
+        # The clip auto-wraps if a chunk crosses the loop boundary.
+        samples = clock.slice(float(config.cadence_s))
         ok, n_bytes, encode_us = stream_one_frame(
             gateway_target=gateway_target,
             use_tls=use_tls,
