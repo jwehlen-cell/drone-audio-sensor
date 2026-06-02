@@ -1,21 +1,23 @@
 [Unit]
-Description=Drone audio simulator (continuous audio-burst sender)
+Description=Drone audio replay-fleet (10 stations, mixed cadence + codec)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 Restart=always
-RestartSec=10
+# Slow the restart loop so a missing test clip / ground truth doesn't
+# spam the log every 10 s. The harness exits with a clear SystemExit
+# message if the inputs at data/test_clips/ aren't present; we'd rather
+# wait a minute between failed boots than fill the log.
+RestartSec=60
 User=drone-sim
 Group=drone-sim
 WorkingDirectory=@@INSTALL_DIR@@
-ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/simulate_soh_phones.py \
-    --project @@GCP_PROJECT@@ \
+ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/replay_fleet.py \
     --gateway-url @@GATEWAY_URL@@ \
-    --audio-burst \
-    --audio-burst-seconds 5 \
-    --interval-seconds 180
+    --project @@GCP_PROJECT@@ \
+    --report-interval 300
 StandardOutput=append:/var/log/drone-simulator.log
 StandardError=append:/var/log/drone-simulator.log
 
