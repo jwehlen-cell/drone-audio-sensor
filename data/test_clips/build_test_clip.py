@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """
-Build a stream-ready test clip: a long bed of REAL ambient (non-drone) audio
-with a REAL drone flyby mixed in at a known time. Output matches the sensor
-pipeline format exactly: 16 kHz mono PCM16.
+Build a stream-ready test clip: a long bed of WHITE NOISE with one REAL
+drone flyby mixed in at a known time. Output matches the sensor pipeline
+format exactly: 16 kHz mono PCM16.
 
-Sources (real recordings): saraalemadi/DroneAudioDataset
-  - drone:   Multiclass_Drone_Audio/{bebop_1|membo_1}/*.wav
-  - ambient: Binary_Drone_Audio/unknown/*.wav  (ESC-50-derived environmental)
+The original test fixture used ESC-50-derived ambient and a short clip
+(300 s) so every station detected on every 5 min loop. That was too
+noisy for the dashboard: dots stayed red continuously. This version
+uses synthetic white noise (cleaner negative) and a long clip (2100 s
+= 35 min) with a single flyby at T_CPA so each station fires once per
+loop, ~30-45 min apart on the dashboard.
+
+Sources:
+  - drone:    saraalemadi/DroneAudioDataset Multiclass_Drone_Audio/bebop_1/*.wav
+              (real recordings; the same source the YAMNet head was
+              trained on, so the trigger fires reliably during the
+              26 s drone window)
+  - ambient:  numpy white noise, scaled to -26 dBFS RMS
 
 Emits:
   drone_flyby_test_16k_mono.wav  -- the clip
@@ -18,8 +28,10 @@ import numpy as np, soundfile as sf
 random.seed(7); np.random.seed(7)
 SR = 16000
 ROOT = "DroneAudioDataset"
-TOTAL_S = 300                 # 5 minutes
-T_CPA   = 180.0               # closest point of approach (s)
+TOTAL_S = 2100                # 35 minutes — one flyby per loop puts
+                              # detections in the 30-45 min cadence the
+                              # operator asked for.
+T_CPA   = 1800.0              # closest point of approach (s) — 30 min in
 SEG_S   = 30.0                # drone audible segment length (s)
 D0, V   = 25.0, 10.0          # closest distance (m), speed (m/s) -> flyby shape
 DRONE   = "bebop_1"           # swap to membo_1, or point elsewhere for DJI
@@ -27,7 +39,7 @@ DRONE   = "bebop_1"           # swap to membo_1, or point elsewhere for DJI
 def load1s(path):
     x, sr = sf.read(path, dtype="float32")
     if x.ndim > 1: x = x.mean(1)
-    if sr != SR:   # all are 16k, but be safe
+    if sr != SR:
         import scipy.signal as ss
         x = ss.resample(x, int(len(x)*SR/sr)).astype("float32")
     return x[:SR] if len(x) >= SR else np.pad(x, (0, SR-len(x)))
@@ -49,18 +61,21 @@ def xfade_sequence(files, n_clips, fade=int(0.2*SR)):
     return out
 
 print("indexing real source clips ...")
-amb_files   = glob.glob(f"{ROOT}/Binary_Drone_Audio/unknown/*.wav")
 drone_files = sorted(glob.glob(f"{ROOT}/Multiclass_Drone_Audio/{DRONE}/*.wav"))
-print(f"  ambient pool: {len(amb_files)}   drone pool ({DRONE}): {len(drone_files)}")
+print(f"  drone pool ({DRONE}): {len(drone_files)}")
+if not drone_files:
+    raise SystemExit(
+        f"No drone wavs at {ROOT}/Multiclass_Drone_Audio/{DRONE}/. "
+        f"Clone https://github.com/saraalemadi/DroneAudioDataset into "
+        f"{os.getcwd()}/{ROOT}/ first."
+    )
 
-# --- ambient bed: two overlapping crossfaded layers => dense continuous noise
+# --- ambient bed: pure white noise. The dashboard operator wanted the
+#     non-flyby periods to be "primarily white noise" so detections only
+#     fire on the embedded drone segment.
 N = TOTAL_S*SR
-clips_per_layer = int(TOTAL_S/0.8)+2
-layA = xfade_sequence(amb_files, clips_per_layer)[:N]
-layB = xfade_sequence(amb_files, clips_per_layer)[:N]
-if len(layA) < N: layA = np.pad(layA,(0,N-len(layA)))
-if len(layB) < N: layB = np.pad(layB,(0,N-len(layB)))
-bed = 0.6*layA + 0.6*np.roll(layB, SR//2)
+rng = np.random.default_rng(seed=7)
+bed = rng.standard_normal(N).astype("float32")
 bed *= (0.05 / rms(bed))           # set ambient RMS ~ -26 dBFS
 
 # --- real drone flyby: continuous rotor audio + physical distance envelope
@@ -104,7 +119,8 @@ gt = {"sample_rate_hz":SR,"frame_seconds":1,"total_seconds":TOTAL_S,
       "drone_type":DRONE,"flyby_cpa_second":T_CPA,
       "drone_present_window_s":[on[0],on[-1]] if on else [],
       "per_second_label":active.tolist(),
-      "notes":"1=drone audibly present. All audio is real (DroneAudioDataset)."}
+      "notes":"1=drone audibly present. Ambient is white noise; the "
+              "drone segment is real audio from DroneAudioDataset."}
 json.dump(gt, open("ground_truth.json","w"), indent=2)
 
 dur=len(mix)/SR
