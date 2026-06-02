@@ -133,6 +133,11 @@ class InferenceWorker:
             frame.codec,
             frame.sample_rate_hz,
         )
+        # Audio duration represented by this frame. The detection gate
+        # uses this to convert "K of N frames over threshold" into
+        # "≥ K seconds of evidence", so wide-cadence stations are not
+        # silently filtered out.
+        frame_seconds = (len(pcm) / 2.0) / float(sample_rate_hz)
         score = await asyncio.to_thread(
             self._model.infer_pcm16,
             pcm,
@@ -144,6 +149,7 @@ class InferenceWorker:
             timestamp_ms=frame.capture_timestamp_ms,
             drone_score=score.drone_score,
             auxiliary_score=score.auxiliary_score,
+            frame_seconds=frame_seconds,
         )
         self._frames_processed += 1
         self._last_frame_at = time.monotonic()

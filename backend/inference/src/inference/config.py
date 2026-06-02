@@ -40,7 +40,15 @@ class Settings(BaseSettings):
     model_version: str = "erau-2024.3-v2"
     score_buffer_size: int = 5
     detection_threshold: float = 0.5
-    min_frames_over_threshold: int = 3
+    # Cadence-aware detection gate. Instead of "K of N frames above
+    # threshold" (which silently misses anything from a station whose
+    # cadence is wider than the typical flyby), we accumulate
+    # seconds-of-audio above threshold across the buffer. A 1 s station
+    # needs 3 frames > 0.5 to fire (3 × 1 s = 3 s); a 5 s station fires
+    # on a single positive frame (5 s ≥ 3 s); a 30 s station likewise
+    # fires on one (30 s ≥ 3 s). Per-device suppression + the buffer
+    # clear on trigger prevent re-fires from stale frames.
+    min_seconds_over_threshold: float = 3.0
     suppression_window_seconds: int = 60
 
     # Kept as a diagnostic side channel only. The trained dense head produces

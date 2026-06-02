@@ -89,6 +89,7 @@ class DetectionState:
         timestamp_ms: int,
         drone_score: float,
         auxiliary_score: float,
+        frame_seconds: float,
     ) -> list[dict]:
         key = self._scores_key(device_id)
         entry = json.dumps(
@@ -97,6 +98,11 @@ class DetectionState:
                 "ts": timestamp_ms,
                 "drone": drone_score,
                 "aux": auxiliary_score,
+                # Audio duration represented by this frame, in seconds.
+                # The evaluate() gate sums frame_s across positive frames
+                # in the window — that's how a wide-cadence station's
+                # single positive frame can still satisfy the gate.
+                "frame_s": frame_seconds,
             }
         )
         async with self._client.pipeline(transaction=True) as pipe:
@@ -111,29 +117,46 @@ class DetectionState:
         return bool(await self._client.exists(self._suppression_key(device_id)))
 
     async def mark_suppressed(self, device_id: str, detection_id: str) -> None:
-        await self._client.set(
-            self._suppression_key(device_id),
-            detection_id,
-            ex=settings.suppression_window_seconds,
-        )
+        # Clear the score buffer at the same time we mark suppression
+        # so a wide-cadence station can't re-fire from stale positive
+        # frames once the suppression window lifts. After this call, the
+        # device starts accumulating fresh evidence from zero.
+        async with self._client.pipeline(transaction=True) as pipe:
+            await pipe.set(
+                self._suppression_key(device_id),
+                detection_id,
+                ex=settings.suppression_window_seconds,
+            )
+            await pipe.delete(self._scores_key(device_id))
+            await pipe.execute()
 
     async def close(self) -> None:
         await self._client.aclose()
 
 
 def evaluate(buffer: list[dict]) -> tuple[bool, float, float, int]:
-    """Return (should_trigger, avg_score, peak_score, frames_over_threshold)."""
+    """Return (should_trigger, avg_score, peak_score, frames_over_threshold).
+
+    Trigger condition is seconds-of-audio-above-threshold across the
+    window, not raw frame count, so a wide-cadence station whose
+    single frame represents 30 s of audio can still fire on one
+    positive detection. ``frames_over_threshold`` in the return tuple
+    is retained for the downstream detection event so existing
+    Firestore/Pub/Sub consumers see the same field semantics.
+    """
     if not buffer:
         return False, 0.0, 0.0, 0
     scores = [float(b["drone"]) for b in buffer]
-    over = sum(1 for s in scores if s >= settings.detection_threshold)
+    over_frames = sum(1 for s in scores if s >= settings.detection_threshold)
     avg = sum(scores) / len(scores)
     peak = max(scores)
-    trigger = (
-        len(buffer) >= settings.min_frames_over_threshold
-        and over >= settings.min_frames_over_threshold
+    seconds_over = sum(
+        float(b.get("frame_s") or 0.0)
+        for b in buffer
+        if float(b["drone"]) >= settings.detection_threshold
     )
-    return trigger, avg, peak, over
+    trigger = seconds_over >= settings.min_seconds_over_threshold
+    return trigger, avg, peak, over_frames
 
 
 def build_detection(
