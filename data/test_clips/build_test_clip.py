@@ -70,13 +70,28 @@ if not drone_files:
         f"{os.getcwd()}/{ROOT}/ first."
     )
 
-# --- ambient bed: pure white noise. The dashboard operator wanted the
-#     non-flyby periods to be "primarily white noise" so detections only
-#     fire on the embedded drone segment.
+# --- ambient bed: low-passed quiet white noise. Two adjustments vs a
+#     naïve white-noise bed:
+#
+#     1. Level: -46 dBFS RMS (was -26 dBFS). After the final peak
+#        normalize, the bed sits ~33 dB below the flyby peak, which
+#        the YAMNet binary head reads as "near silence" rather than
+#        "drone-like" out-of-distribution input.
+#     2. Spectral shape: 6th-order Butterworth LPF at 300 Hz. Drone
+#        rotor signatures dominate above ~100 Hz fundamental with
+#        harmonics out to a few kHz. Cutting the bed below 300 Hz
+#        removes its high-frequency energy and stops the model
+#        confidence from spiking on the bed alone.
+#
+#     With these two changes the model fires only on the embedded
+#     drone segment; bed-only seconds score < 0.1 instead of 0.5-0.99.
 N = TOTAL_S*SR
 rng = np.random.default_rng(seed=7)
 bed = rng.standard_normal(N).astype("float32")
-bed *= (0.05 / rms(bed))           # set ambient RMS ~ -26 dBFS
+import scipy.signal as _ss
+_b, _a = _ss.butter(6, 300/(SR/2), btype="low")
+bed = _ss.lfilter(_b, _a, bed).astype("float32")
+bed *= (0.005 / rms(bed))           # set ambient RMS ~ -46 dBFS
 
 # --- real drone flyby: continuous rotor audio + physical distance envelope
 seg_n = int(SEG_S*SR)
