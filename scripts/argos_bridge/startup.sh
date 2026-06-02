@@ -33,6 +33,7 @@ sudo -u argos-bridge "${VENV}/bin/pip" install --quiet \
   -r "${INSTALL_DIR}/scripts/requirements.txt" \
   google-cloud-storage \
   google-cloud-secret-manager \
+  google-cloud-bigquery \
   PyJWT
 
 # Regenerate protos into scripts/ so bridge.py can import them.

@@ -23,18 +23,36 @@ gcloud projects add-iam-policy-binding argosuat \
   --role=roles/datastore.user
 ```
 
-### 2. Cross-project GCS grant (run by someone with prod argos admin)
+### 2. Cross-project grants (run by someone with prod argos admin)
+
+The bridge SA needs **two** read-only grants in argos-487318:
 
 ```bash
+# Read clips out of the unzipped bucket
 gcloud storage buckets add-iam-policy-binding \
   gs://aftac-argos-dataflow-unzipped \
   --project=argos-487318 \
   --member=serviceAccount:argos-bridge@argosuat.iam.gserviceaccount.com \
   --role=roles/storage.objectViewer
+
+# Query the sensor location registry (per-clip GPS fallback)
+gcloud projects add-iam-policy-binding argos-487318 \
+  --member=serviceAccount:argos-bridge@argosuat.iam.gserviceaccount.com \
+  --role=roles/bigquery.jobUser
+
+gcloud projects add-iam-policy-binding argos-487318 \
+  --member=serviceAccount:argos-bridge@argosuat.iam.gserviceaccount.com \
+  --role=roles/bigquery.dataViewer
 ```
 
-Without this grant, the bridge will start cleanly but `list_blobs`
-will return 403 on every station — visible in the bridge logs.
+(`bigquery.jobUser` lets the bridge submit a query; `bigquery.dataViewer`
+at the project level grants read on every dataset. If you'd rather
+scope tighter, bind `dataViewer` on the `argos` dataset specifically.)
+
+Without these grants the bridge will start cleanly but every station
+will log 403 on `list_blobs` and `BigQuery registry load failed`.
+Sidecar GPS resolution falls back to "no location available" and
+clips get skipped.
 
 ### 3. Mint test PKI material
 
@@ -108,6 +126,33 @@ GOOGLE_CLOUD_PROJECT=argosuat \
 | `BRIDGE_CODEC` | `pcm16` | `pcm16` or `flac` |
 | `BRIDGE_REFRESH_INTERVAL_S` | 1800 | re-list GCS this often |
 | `BRIDGE_STATIONS` | (all 33) | comma-separated subset |
+| `BRIDGE_REGISTRY_TABLE` | `argos-487318.argos.sensor_locations` | BQ fallback table |
+| `BRIDGE_REGISTRY_SR_COL` | `sensor` | column name holding the station id |
+| `BRIDGE_SNAP_TO_REGISTRY` | false | when a sidecar GPS is >50 km from the registry position, snap to registry instead of using the (warned) sidecar value |
+| `BRIDGE_REGISTRY_REQUIRED` | false | refuse to start if the BQ registry load fails (default: log + continue) |
+
+## Per-clip GPS
+
+Location is resolved **per clip**, not per station. Order:
+
+1. **Sidecar JSON next to the .wav** — `location.{latitude, longitude, altitude}`.
+   When present, this becomes the clip's location.
+2. **BigQuery `argos-487318.argos.sensor_locations`** — one query at
+   startup, cached. Used as fallback when the sidecar has no location.
+
+The handshake carries the first clip's resolved location. Subsequent
+clips whose location differs emit a `LocationUpdate` before the
+`AudioFrame`, so the stream reflects per-clip movement.
+
+Sanity guard: when a sidecar GPS is >50 km from the station's
+registry position, the bridge emits a `WARNING` and uses the sidecar
+value anyway. Set `BRIDGE_SNAP_TO_REGISTRY=true` to flip that to
+snap-to-registry behavior. (Use case: a sidecar with a placeholder
+`21.29,-157.84` Honolulu reading should be ignored.)
+
+`DeviceLocation.provider` is `"sidecar-gps"` or `"registry"` per
+source. `status` is `LOCATION_STATUS_CURRENT` for sidecar GPS and
+`LOCATION_STATUS_MANUAL` for registry fallback.
 
 ## Auth posture (TEST-only)
 

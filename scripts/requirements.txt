@@ -24,4 +24,7 @@ scipy>=1.11
 # sign.
 google-cloud-storage>=2.16
 google-cloud-secret-manager>=2.20
+# Cross-project query against argos-487318.argos.sensor_locations for
+# the per-clip GPS fallback when a clip's sidecar has no location.
+google-cloud-bigquery>=3.20
 PyJWT>=2.8
