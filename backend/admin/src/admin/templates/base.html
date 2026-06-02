@@ -10,9 +10,25 @@
     <header class="topbar">
         <strong>Drone Sensor Admin</strong>
         <nav>
-            <a href="/">Status</a>
-            <a href="/registered">Registered phones</a>
+            {# Persist the selected site across nav links so the
+               operator stays in their site context as they move between
+               status and registered. #}
+            {% set q = "?site=" ~ current_site if current_site else "" %}
+            <a href="/{{ q }}">Status</a>
+            <a href="/registered{{ q }}">Registered phones</a>
         </nav>
+        {% if available_sites %}
+        <span class="site-picker">
+            Site:
+            {% for s in available_sites %}
+                {% if s == current_site %}
+                    <span class="chip chip-active">{{ s }}</span>
+                {% else %}
+                    <a class="chip" href="?site={{ s }}">{{ s }}</a>
+                {% endif %}
+            {% endfor %}
+        </span>
+        {% endif %}
         <span class="user">user: {{ user }}</span>
     </header>
     <main>

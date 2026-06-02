@@ -55,7 +55,7 @@
                     {% else %}
                         {% for target in row.allowed_transitions %}
                             <form method="post"
-                                  action="/api/devices/{{ d.device_id }}/state"
+                                  action="/api/devices/{{ d.device_id }}/state{% if current_site %}?site={{ current_site }}{% endif %}"
                                   class="inline-action"
                                   onsubmit="return confirmTransition(this, '{{ d.state }}', '{{ target }}', {{ 'true' if row.extra_confirm[target] else 'false' }});">
                                 <input type="hidden" name="target" value="{{ target }}" />

@@ -37,7 +37,13 @@ def main() -> None:
     parser.add_argument(
         "--site-label",
         default="SH",
-        help="assigned_site_label written to each device doc",
+        help="assigned_site_label written to each device doc (free-form per-station tag)",
+    )
+    parser.add_argument(
+        "--site",
+        default="Shaw",
+        help="Site grouping key. The admin UI's top selector chooses one of "
+             "these; all device + detection queries are scoped to it.",
     )
     args = parser.parse_args()
 
@@ -58,6 +64,7 @@ def main() -> None:
         doc = {
             "device_id": st.station_id,
             "state": "active",
+            "site": args.site,
             "assigned_site_label": args.site_label,
             "app_version": "argos-sim/1.0",
             "device_model": "argos-bridge",

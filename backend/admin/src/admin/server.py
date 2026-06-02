@@ -125,10 +125,24 @@ def build_app() -> FastAPI:
         fs: FirestoreRepo = Depends(fs_dep),
         r: RedisRepo = Depends(redis_dep),
     ) -> Any:
-        devices = await fs.list_devices()
-        live = await r.list_live_devices()
-        detections = await fs.list_recent_detections()
+        # Site filtering. The top of the page exposes a chip per known
+        # site; the operator picks one and everything below is scoped to
+        # that site. ``?site=...`` overrides; missing/unknown falls back
+        # to the alphabetically-first available site.
+        available_sites = await fs.list_sites()
+        site_param = (request.query_params.get("site") or "").strip()
+        if site_param and site_param in available_sites:
+            current_site = site_param
+        else:
+            current_site = available_sites[0] if available_sites else ""
+
+        devices = await fs.list_devices(site=current_site or None)
+        live_all = await r.list_live_devices()
+        detections = await fs.list_recent_detections(site=current_site or None)
         device_by_id = {d.device_id: d for d in devices}
+        # Live state isn't scoped server-side (Redis doesn't know about
+        # sites); restrict by joining against the per-site registered set.
+        live = [l for l in live_all if l.device_id in device_by_id]
         # The dot column is red iff the device has published a detection
         # within the last `recent_detection_red_seconds`. Built from the
         # already-fetched detection list — no extra Firestore round-trip.
@@ -210,6 +224,8 @@ def build_app() -> FastAPI:
                 "stale_warning_seconds": settings.stale_warning_seconds,
                 "stale_offline_seconds": settings.stale_offline_seconds,
                 "recent_detection_red_seconds": settings.recent_detection_red_seconds,
+                "available_sites": available_sites,
+                "current_site": current_site,
                 "refresh_seconds": refresh_seconds,
                 # Operator-facing refresh chips. Order matters — used as
                 # the rendered order in the template.
@@ -230,7 +246,13 @@ def build_app() -> FastAPI:
         user: str = Depends(_resolve_user),
         fs: FirestoreRepo = Depends(fs_dep),
     ) -> Any:
-        devices = await fs.list_devices()
+        available_sites = await fs.list_sites()
+        site_param = (request.query_params.get("site") or "").strip()
+        if site_param and site_param in available_sites:
+            current_site = site_param
+        else:
+            current_site = available_sites[0] if available_sites else ""
+        devices = await fs.list_devices(site=current_site or None)
         rows = []
         for d in devices:
             allowed = sorted(allowed_next_states(d.state))
@@ -250,6 +272,8 @@ def build_app() -> FastAPI:
                 "user": user,
                 "rows": rows,
                 "all_states": sorted(ALL_STATES),
+                "available_sites": available_sites,
+                "current_site": current_site,
             },
         )
 
@@ -257,6 +281,7 @@ def build_app() -> FastAPI:
 
     @app.post("/api/devices/{device_id}/state")
     async def change_state(
+        request: Request,
         device_id: str,
         target: str = Form(...),
         confirm: str = Form(""),
@@ -280,7 +305,11 @@ def build_app() -> FastAPI:
             from_state=current_device.state,
             to_state=updated.state,
         )
-        return RedirectResponse("/registered", status_code=303)
+        # Preserve site context in the redirect so the operator stays
+        # on the same site's registered-phones page after a transition.
+        site = (request.query_params.get("site") or "").strip()
+        target_url = f"/registered?site={site}" if site else "/registered"
+        return RedirectResponse(target_url, status_code=303)
 
     @app.get("/api/connected")
     async def api_connected(

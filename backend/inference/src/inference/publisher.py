@@ -27,7 +27,9 @@ class DetectionPublisher:
         )
 
     async def publish(self, event: DetectionEvent) -> str:
-        location = await self._lookup_location(event.device_id)
+        device_fields = await self._lookup_device_fields(event.device_id)
+        location = device_fields.get("location") if device_fields else None
+        site = device_fields.get("site") if device_fields else None
         message = {
             "schema_version": 1,
             "detection_id": event.detection_id,
@@ -42,6 +44,12 @@ class DetectionPublisher:
             "frames_over_threshold": event.frames_over_threshold,
             "window_frames": event.window_frames,
             "threshold": event.threshold,
+            # Site grouping key (e.g. "Patrick", "Shaw"). The admin UI
+            # filters every view by this; an event with no site is
+            # invisible until backfilled. Inherited from the device's
+            # registry doc, not the streaming handshake — sites are a
+            # provisioning concern, not a per-stream one.
+            "site": site or "",
             "site_label": event.site_label,
             "model": {
                 "name": event.model_name,
@@ -66,6 +74,7 @@ class DetectionPublisher:
         attributes = {
             "device_id": event.device_id,
             "detection_id": event.detection_id,
+            "site": site or "",
             "site_label": event.site_label or "",
             "model_name": event.model_name,
         }
@@ -118,7 +127,11 @@ class DetectionPublisher:
             event.detection_id
         ).set(doc_payload)
 
-    async def _lookup_location(self, device_id: str) -> dict | None:
+    async def _lookup_device_fields(self, device_id: str) -> dict | None:
+        """One Firestore round-trip that pulls everything the detection
+        publisher needs from the device's registry doc: location and
+        site grouping. Returns ``{"location": {...} | None, "site": str | None}``
+        or None when the doc doesn't exist."""
         try:
             snap = await self._firestore.collection(settings.devices_collection).document(
                 device_id
@@ -126,19 +139,27 @@ class DetectionPublisher:
             if not snap.exists:
                 return None
             data = snap.to_dict() or {}
+            site = data.get("site")
             loc = data.get("current_location")
             if loc is None:
-                return None
+                return {"location": None, "site": site}
             return {
-                "latitude": float(loc.latitude),
-                "longitude": float(loc.longitude),
-                "accuracy_m": data.get("location_accuracy_m"),
-                "status": data.get("location_status"),
-                "timestamp_ms": data.get("location_timestamp_ms"),
+                "location": self._location_from_doc(data, loc),
+                "site": site,
             }
         except Exception as e:  # noqa: BLE001
-            log.warning("device_location_lookup_failed", device_id=device_id, error=str(e))
+            log.warning("device_lookup_failed", device_id=device_id, error=str(e))
             return None
+
+    @staticmethod
+    def _location_from_doc(data: dict, loc) -> dict:
+        return {
+            "latitude": float(loc.latitude),
+            "longitude": float(loc.longitude),
+            "accuracy_m": data.get("location_accuracy_m"),
+            "status": data.get("location_status"),
+            "timestamp_ms": data.get("location_timestamp_ms"),
+        }
 
     def close(self) -> None:
         try:

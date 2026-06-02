@@ -22,6 +22,10 @@ log = structlog.get_logger(__name__)
 class DeviceRow:
     device_id: str
     state: str
+    # Site grouping key — e.g. "Patrick", "Shaw". Drives the top-of-page
+    # selector; all views filter by this. Empty string when a device
+    # hasn't been backfilled yet.
+    site: str
     site_label: str
     app_version: str
     device_model: str
@@ -59,6 +63,9 @@ SUBTYPE_DISPLAY = {
 class DetectionRow:
     detection_id: str
     device_id: str
+    # Inherited from the device's registry doc at detection-write time.
+    # The admin UI filters every detection list by this.
+    site: str
     site_label: str
     average_score: float
     peak_score: float
@@ -90,13 +97,26 @@ class FirestoreRepo:
         self._devices = self._client.collection(settings.devices_collection)
         self._detections = self._client.collection(settings.detections_collection)
 
-    async def list_devices(self) -> list[DeviceRow]:
+    async def list_devices(self, site: str | None = None) -> list[DeviceRow]:
         rows: list[DeviceRow] = []
         async for snap in self._devices.stream():
             data = snap.to_dict() or {}
-            rows.append(_to_device_row(snap.id, data))
+            row = _to_device_row(snap.id, data)
+            if site is not None and row.site != site:
+                continue
+            rows.append(row)
         rows.sort(key=lambda r: r.device_id)
         return rows
+
+    async def list_sites(self) -> list[str]:
+        """Distinct ``site`` values across all device docs, sorted.
+        Empty-string sites (unbackfilled devices) are skipped."""
+        seen: set[str] = set()
+        async for snap in self._devices.stream():
+            site = (snap.to_dict() or {}).get("site")
+            if site:
+                seen.add(site)
+        return sorted(seen)
 
     async def get_device(self, device_id: str) -> DeviceRow | None:
         snap = await self._devices.document(device_id).get()
@@ -136,10 +156,12 @@ class FirestoreRepo:
         log.info("device_state_changed", device_id=device_id, new_state=normalize(target_state))
         return _to_device_row(device_id, updated)
 
-    async def list_recent_detections(self) -> list[DetectionRow]:
+    async def list_recent_detections(
+        self, site: str | None = None
+    ) -> list[DetectionRow]:
         cutoff_ms = int(time.time() * 1000) - settings.recent_detections_window_seconds * 1000
         # Avoid composite-index requirements: fetch the last N by
-        # published_at_ms and filter the window in Python.
+        # published_at_ms and filter the window + site in Python.
         query = (
             self._detections.order_by(
                 "published_at_ms", direction=firestore.Query.DESCENDING
@@ -152,7 +174,10 @@ class FirestoreRepo:
             published = int(data.get("published_at_ms") or 0)
             if published and published < cutoff_ms:
                 continue
-            rows.append(_to_detection_row(snap.id, data))
+            row = _to_detection_row(snap.id, data)
+            if site is not None and row.site != site:
+                continue
+            rows.append(row)
         return rows
 
     async def upsert_simulated_devices(
@@ -204,6 +229,7 @@ def _to_device_row(device_id: str, data: dict[str, Any]) -> DeviceRow:
     return DeviceRow(
         device_id=device_id,
         state=state,
+        site=str(data.get("site") or ""),
         site_label=str(data.get("assigned_site_label") or ""),
         app_version=str(data.get("app_version") or ""),
         device_model=str(data.get("device_model") or ""),
@@ -245,6 +271,7 @@ def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
     return DetectionRow(
         detection_id=detection_id,
         device_id=str(data.get("device_id") or ""),
+        site=str(data.get("site") or ""),
         site_label=str(data.get("site_label") or ""),
         average_score=float(data.get("average_score") or 0.0),
         peak_score=float(data.get("peak_score") or 0.0),

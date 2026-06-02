@@ -49,8 +49,17 @@ code {
     margin-right: 16px;
 }
 
-.topbar .user {
+.topbar .site-picker {
     margin-left: auto;
+    color: var(--muted);
+    font-size: 0.95em;
+}
+
+.topbar .site-picker .chip {
+    margin-left: 4px;
+}
+
+.topbar .user {
     color: var(--muted);
 }
 
