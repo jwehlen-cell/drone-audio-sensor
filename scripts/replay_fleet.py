@@ -383,6 +383,16 @@ def replay_station(
     network_type_enum = random.choice([1, 2])  # WIFI / CELLULAR_LTE
     battery_started_at = time.monotonic()
 
+    # Per-station playback phase across the full clip duration. All
+    # stations share the same PlaybackClock, so without this offset
+    # they'd all hit the embedded flyby at the same wall-clock instant
+    # (every 35 min in the current fixture) and the dashboard would see
+    # one synchronized burst of 10 detections per loop. A random shift
+    # in [0, clip_duration) staggers each station's view of the clip so
+    # the detection cadence per device is the requested 30-45 min, but
+    # the detections themselves are spread across that window.
+    playback_phase_s = random.uniform(0.0, clock.duration_s)
+
     sequence = 0
     while not stop_event.is_set():
         cycle_start = time.monotonic()
@@ -393,7 +403,12 @@ def replay_station(
         # Chunk size == cadence: a 30 s-cadence station sends 30 s of
         # audio every 30 s; a 1 s-cadence station sends 1 s every 1 s.
         # The clip auto-wraps if a chunk crosses the loop boundary.
-        samples = clock.slice(float(config.cadence_s))
+        # Per-station phase shifts the playback position so stations
+        # see different parts of the clip at the same wall-clock time.
+        samples = clock.slice(
+            float(config.cadence_s),
+            wall_ts=time.time() + playback_phase_s,
+        )
         ok, n_bytes, encode_us = stream_one_frame(
             gateway_target=gateway_target,
             use_tls=use_tls,
