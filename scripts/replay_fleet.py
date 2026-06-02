@@ -606,12 +606,19 @@ def print_report(
 def load_ground_truth(path: Path) -> list[tuple[float, float, float]]:
     """Returns ``[(start_s, end_s, cpa_s), ...]`` in clip-relative seconds.
 
-    Accepts either:
-        {"flybys": [{"start_s": 167, "end_s": 192, "cpa_s": 180}, ...]}
-    or a per-second boolean labels array under
-        {"per_second": [false, ..., true, ...]} or
-        {"drone_present": [...]}
-    in which case flyby windows are derived from contiguous runs of true.
+    Accepts several schemas, tried in order:
+
+    1. ``{"flybys": [{"start_s": 167, "end_s": 192, "cpa_s": 180}, ...]}``
+       — explicit multi-flyby list.
+
+    2. ``{"drone_present_window_s": [167, 192], "flyby_cpa_second": 180}``
+       — single-flyby schema produced by build_test_clip.py. CPA is
+       optional; defaults to the window midpoint.
+
+    3. ``{"per_second": [0, 0, 1, 1, ...]}`` or
+       ``{"drone_present": [...]}`` or ``{"per_second_label": [...]}``
+       — per-second labels (boolean OR 0/1 ints). Flybys are derived
+       from contiguous runs of truthy values.
     """
     data = json.loads(path.read_text())
     flybys = data.get("flybys")
@@ -624,7 +631,16 @@ def load_ground_truth(path: Path) -> list[tuple[float, float, float]]:
             )
             for f in flybys
         ]
-    labels = data.get("per_second") or data.get("drone_present")
+    window = data.get("drone_present_window_s")
+    if window and isinstance(window, (list, tuple)) and len(window) == 2:
+        start_s, end_s = float(window[0]), float(window[1])
+        cpa_s = float(data.get("flyby_cpa_second", (start_s + end_s) / 2))
+        return [(start_s, end_s, cpa_s)]
+    labels = (
+        data.get("per_second")
+        or data.get("drone_present")
+        or data.get("per_second_label")
+    )
     if labels and isinstance(labels, list):
         runs: list[tuple[float, float, float]] = []
         in_run = False
@@ -641,7 +657,8 @@ def load_ground_truth(path: Path) -> list[tuple[float, float, float]]:
             runs.append((float(run_start), float(n), (run_start + n) / 2.0))
         return runs
     raise ValueError(
-        f"{path}: ground truth missing 'flybys' or per-second labels"
+        f"{path}: ground truth missing 'flybys' / "
+        f"'drone_present_window_s' / per-second labels"
     )
 
 

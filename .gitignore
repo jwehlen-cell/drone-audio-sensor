@@ -52,3 +52,8 @@ teardown_export_*/
 
 # Sim VM clones the upstream WAV fixtures into this dir at startup.
 data/sim_audio_fixtures/
+
+# Source clone used by data/test_clips/build_test_clip.py to mint the
+# stream-ready flyby clip. The built artifact (drone_flyby_test_16k_mono.wav
+# + ground_truth.json) is committed; the ~280 MB source pool is not.
+data/test_clips/DroneAudioDataset/
