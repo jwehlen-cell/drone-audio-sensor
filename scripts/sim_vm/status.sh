@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROJECT=${PROJECT:-drone-audio-sensor}
 ZONE=${ZONE:-us-central1-a}
-INSTANCE=${INSTANCE:-drone-sim-sender}
+INSTANCE=${INSTANCE:-drone-sensor-dev-sim}
 
 echo "=== VM status ==="
 gcloud compute instances describe "$INSTANCE" \
@@ -15,9 +15,9 @@ gcloud compute instances describe "$INSTANCE" \
 echo ""
 echo "=== systemd service ==="
 gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" \
-    --command='systemctl is-active drone-simulator; systemctl status drone-simulator --no-pager -n 5 || true'
+    --command='systemctl is-active drone-sensor-dev-sim; systemctl status drone-sensor-dev-sim --no-pager -n 5 || true'
 
 echo ""
 echo "=== last 20 lines of simulator log ==="
 gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" \
-    --command='tail -n 20 /var/log/drone-simulator.log 2>/dev/null || echo "(no log yet)"'
+    --command='tail -n 20 /var/log/drone-sensor-dev-sim.log 2>/dev/null || echo "(no log yet)"'

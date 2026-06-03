@@ -5,7 +5,7 @@ set -euo pipefail
 
 PROJECT=${PROJECT:-drone-audio-sensor}
 ZONE=${ZONE:-us-central1-a}
-INSTANCE=${INSTANCE:-drone-sim-sender}
+INSTANCE=${INSTANCE:-drone-sensor-dev-sim}
 GATEWAY_URL=${GATEWAY_URL:-drone-sensor-dev-gateway-65av54lbuq-uc.a.run.app}
 REPO_URL=${REPO_URL:-https://github.com/jwehlen-cell/drone-audio-sensor.git}
 
@@ -24,7 +24,7 @@ gcloud compute instances create "${INSTANCE}" \
   --network=default \
   --no-service-account \
   --no-scopes \
-  --tags=drone-sim-sender \
+  --tags=drone-sensor-dev-sim \
   --metadata-from-file=startup-script=startup.sh \
   --metadata=GATEWAY_URL="${GATEWAY_URL}",GCP_PROJECT="${PROJECT}",REPO_URL="${REPO_URL}" \
   --shielded-secure-boot \
@@ -42,7 +42,7 @@ the simulator (~2-3 min).
 
   Check simulator service:
     gcloud compute ssh ${INSTANCE} --zone=${ZONE} --project=${PROJECT} \\
-      --command='systemctl status drone-simulator; sudo journalctl -u drone-simulator -n 30'
+      --command='systemctl status drone-sensor-dev-sim; sudo journalctl -u drone-sensor-dev-sim -n 30'
 
   Or just run ./scripts/sim_vm/status.sh
 EOF

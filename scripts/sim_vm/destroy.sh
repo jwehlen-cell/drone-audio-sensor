@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROJECT=${PROJECT:-drone-audio-sensor}
 ZONE=${ZONE:-us-central1-a}
-INSTANCE=${INSTANCE:-drone-sim-sender}
+INSTANCE=${INSTANCE:-drone-sensor-dev-sim}
 
 echo "Deleting $INSTANCE in $ZONE..."
 gcloud compute instances delete "$INSTANCE" \

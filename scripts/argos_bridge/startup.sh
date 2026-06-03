@@ -19,17 +19,17 @@ apt-get install -y --no-install-recommends \
   git python3 python3-venv python3-pip build-essential \
   python3-dev libsndfile1
 
-useradd --system --home /var/lib/argos-bridge --create-home --shell /usr/sbin/nologin \
-  argos-bridge || true
+useradd --system --home /var/lib/drone-sensor-dev-argos-bridge --create-home --shell /usr/sbin/nologin \
+  drone-sensor-dev-argos-bridge || true
 
 if [ ! -d "${INSTALL_DIR}/.git" ]; then
   git clone --depth=1 "${REPO_URL}" "${INSTALL_DIR}"
 fi
-chown -R argos-bridge:argos-bridge "${INSTALL_DIR}"
+chown -R drone-sensor-dev-argos-bridge:drone-sensor-dev-argos-bridge "${INSTALL_DIR}"
 
-sudo -u argos-bridge python3 -m venv "${VENV}"
-sudo -u argos-bridge "${VENV}/bin/pip" install --quiet --upgrade pip
-sudo -u argos-bridge "${VENV}/bin/pip" install --quiet \
+sudo -u drone-sensor-dev-argos-bridge python3 -m venv "${VENV}"
+sudo -u drone-sensor-dev-argos-bridge "${VENV}/bin/pip" install --quiet --upgrade pip
+sudo -u drone-sensor-dev-argos-bridge "${VENV}/bin/pip" install --quiet \
   -r "${INSTALL_DIR}/scripts/requirements.txt" \
   google-cloud-storage \
   google-cloud-secret-manager \
@@ -37,7 +37,7 @@ sudo -u argos-bridge "${VENV}/bin/pip" install --quiet \
   PyJWT
 
 # Regenerate protos into scripts/ so bridge.py can import them.
-sudo -u argos-bridge "${VENV}/bin/python" -m grpc_tools.protoc \
+sudo -u drone-sensor-dev-argos-bridge "${VENV}/bin/python" -m grpc_tools.protoc \
   -I"${INSTALL_DIR}/proto" \
   --python_out="${INSTALL_DIR}/scripts" \
   --grpc_python_out="${INSTALL_DIR}/scripts" \
@@ -50,10 +50,10 @@ sed \
   -e "s#@@GATEWAY_URL@@#${GATEWAY_URL}#g" \
   -e "s#@@GCP_PROJECT@@#${GCP_PROJECT}#g" \
   "${INSTALL_DIR}/scripts/argos_bridge/bridge.service.template" \
-  > /etc/systemd/system/argos-bridge.service
+  > /etc/systemd/system/drone-sensor-dev-argos-bridge.service
 
-touch /var/log/argos-bridge.log
-chown argos-bridge:argos-bridge /var/log/argos-bridge.log
+touch /var/log/drone-sensor-dev-argos-bridge.log
+chown drone-sensor-dev-argos-bridge:drone-sensor-dev-argos-bridge /var/log/drone-sensor-dev-argos-bridge.log
 
 systemctl daemon-reload
-systemctl enable --now argos-bridge.service
+systemctl enable --now drone-sensor-dev-argos-bridge.service

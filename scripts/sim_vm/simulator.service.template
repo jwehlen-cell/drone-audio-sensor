@@ -11,15 +11,15 @@ Restart=always
 # message if the inputs at data/test_clips/ aren't present; we'd rather
 # wait a minute between failed boots than fill the log.
 RestartSec=60
-User=drone-sim
-Group=drone-sim
+User=drone-sensor-dev-sim
+Group=drone-sensor-dev-sim
 WorkingDirectory=@@INSTALL_DIR@@
 ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/replay_fleet.py \
     --gateway-url @@GATEWAY_URL@@ \
     --project @@GCP_PROJECT@@ \
     --report-interval 300
-StandardOutput=append:/var/log/drone-simulator.log
-StandardError=append:/var/log/drone-simulator.log
+StandardOutput=append:/var/log/drone-sensor-dev-sim.log
+StandardError=append:/var/log/drone-sensor-dev-sim.log
 
 # Hardening
 NoNewPrivileges=true

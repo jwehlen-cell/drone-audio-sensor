@@ -1,20 +1,24 @@
 resource "google_service_account" "gateway" {
-  account_id   = "${var.resource_prefix}-gw-${var.environment}"
+  # Naming: ${resource_prefix}-${environment}-${role}. Aligns with the
+  # dominant drone-sensor-dev-* pattern used by every other resource
+  # in this Terraform (Cloud Run services, VPC, secrets, registry).
+  # Replaces the older drone-sensor-{role}-{env} ordering.
+  account_id   = "${var.resource_prefix}-${var.environment}-gateway"
   display_name = "Drone sensor gateway (Cloud Run)"
 
   depends_on = [google_project_service.enabled]
 }
 
 resource "google_service_account" "inference" {
-  account_id   = "${var.resource_prefix}-inf-${var.environment}"
-  display_name = "Drone sensor inference worker (placeholder for Session 3)"
+  account_id   = "${var.resource_prefix}-${var.environment}-inference"
+  display_name = "Drone sensor inference worker (Cloud Run)"
 
   depends_on = [google_project_service.enabled]
 }
 
 resource "google_service_account" "tak_publisher" {
-  account_id   = "${var.resource_prefix}-tak-${var.environment}"
-  display_name = "Drone sensor TAK publisher (placeholder for Session 4)"
+  account_id   = "${var.resource_prefix}-${var.environment}-tak-publisher"
+  display_name = "Drone sensor TAK publisher (Cloud Run)"
 
   depends_on = [google_project_service.enabled]
 }

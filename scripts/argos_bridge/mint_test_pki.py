@@ -8,10 +8,10 @@ artifact is labelled "TEST" in the CN and the secret name so it can't
 be confused with prod credentials.
 
 Outputs (Secret Manager in project argosuat):
-  argos-uat-test-ca-cert        PEM-encoded self-signed test CA cert
-  argos-uat-test-ca-key         PEM-encoded test CA private key
-  argos-uat-sim-cert-<STATION>  PEM-encoded station cert (signed by CA)
-  argos-uat-sim-key-<STATION>   PEM-encoded station private key
+  drone-sensor-dev-test-ca-cert        PEM-encoded self-signed test CA cert
+  drone-sensor-dev-test-ca-key         PEM-encoded test CA private key
+  drone-sensor-dev-sim-cert-<STATION>  PEM-encoded station cert (signed by CA)
+  drone-sensor-dev-sim-key-<STATION>   PEM-encoded station private key
 
 Also writes the public-key PEM for every station to a local file at
 ``out_pubkeys/<STATION>.pub.pem`` so enroll_stations.py can pick them
@@ -60,7 +60,7 @@ def mint_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     key = _generate_keypair()
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, CA_CN),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Argos UAT (sandbox)"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "drone-sensor-dev (sandbox)"),
     ])
     now = _now_utc()
     cert = (
@@ -97,7 +97,7 @@ def mint_leaf(
     key = _generate_keypair()
     subject = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, f"{station_id} (TEST)"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Argos UAT (sandbox)"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "drone-sensor-dev (sandbox)"),
     ])
     now = _now_utc()
     cert = (
@@ -188,8 +188,8 @@ def main() -> None:
 
     sm = secretmanager.SecretManagerServiceClient()
 
-    ca_cert_secret = _ensure_secret(sm, args.project, "argos-uat-test-ca-cert")
-    ca_key_secret = _ensure_secret(sm, args.project, "argos-uat-test-ca-key")
+    ca_cert_secret = _ensure_secret(sm, args.project, "drone-sensor-dev-test-ca-cert")
+    ca_key_secret = _ensure_secret(sm, args.project, "drone-sensor-dev-test-ca-key")
     _add_version(sm, ca_cert_secret, _cert_pem(ca_cert))
     _add_version(sm, ca_key_secret, _key_pem(ca_key))
     log.info("ca uploaded -> %s, %s", ca_cert_secret, ca_key_secret)
@@ -199,10 +199,10 @@ def main() -> None:
             station_id=st.station_id, ca_key=ca_key, ca_cert=ca_cert
         )
         cert_secret = _ensure_secret(
-            sm, args.project, f"argos-uat-sim-cert-{st.station_id}"
+            sm, args.project, f"drone-sensor-dev-sim-cert-{st.station_id}"
         )
         key_secret = _ensure_secret(
-            sm, args.project, f"argos-uat-sim-key-{st.station_id}"
+            sm, args.project, f"drone-sensor-dev-sim-key-{st.station_id}"
         )
         _add_version(sm, cert_secret, _cert_pem(leaf_cert))
         _add_version(sm, key_secret, _key_pem(leaf_key))

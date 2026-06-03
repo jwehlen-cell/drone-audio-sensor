@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=simple
 Restart=always
 RestartSec=60
-User=argos-bridge
-Group=argos-bridge
+User=drone-sensor-dev-argos-bridge
+Group=drone-sensor-dev-argos-bridge
 WorkingDirectory=@@INSTALL_DIR@@
 Environment=GOOGLE_CLOUD_PROJECT=@@GCP_PROJECT@@
 Environment=BRIDGE_GATEWAY_URL=@@GATEWAY_URL@@

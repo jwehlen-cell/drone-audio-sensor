@@ -7,15 +7,15 @@ set -euo pipefail
 
 PROJECT=${PROJECT:-argosuat}
 ZONE=${ZONE:-us-west2-a}
-INSTANCE=${INSTANCE:-mock-tak-server}
+INSTANCE=${INSTANCE:-drone-sensor-dev-mock-tak}
 PORT=${PORT:-8089}
 REPO_URL=${REPO_URL:-https://github.com/jwehlen-cell/drone-audio-sensor.git}
-SA_EMAIL=${SA_EMAIL:-mock-tak-server@argosuat.iam.gserviceaccount.com}
+SA_EMAIL=${SA_EMAIL:-drone-sensor-dev-mock-tak@argosuat.iam.gserviceaccount.com}
 
 cd "$(dirname "$0")"
 
 # One-time SA creation (idempotent: ignores "already exists").
-gcloud iam service-accounts create mock-tak-server \
+gcloud iam service-accounts create drone-sensor-dev-mock-tak \
   --project="${PROJECT}" \
   --display-name "Mock TAK receiver" 2>/dev/null || true
 

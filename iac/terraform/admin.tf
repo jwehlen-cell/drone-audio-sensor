@@ -3,7 +3,9 @@ locals {
 }
 
 resource "google_service_account" "admin" {
-  account_id   = "${var.resource_prefix}-admin-${var.environment}"
+  # Naming aligned with service_accounts.tf — see that file for
+  # rationale.
+  account_id   = "${var.resource_prefix}-${var.environment}-admin"
   display_name = "Drone sensor admin UI"
 
   depends_on = [google_project_service.enabled]
