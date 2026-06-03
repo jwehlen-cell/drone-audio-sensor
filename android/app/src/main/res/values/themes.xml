@@ -5,6 +5,12 @@
         <item name="android:statusBarColor">@color/bg_dark</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
-        <item name="android:keepScreenOn">true</item>
+        <!-- Screen timeout is left to the OS so the phone can sleep its
+             display when nobody's looking at it. The AudioCaptureService
+             holds a PARTIAL_WAKE_LOCK that keeps the CPU awake, so
+             capture + gRPC streaming + the connectivity watchdog all
+             continue when the screen is off. Set keepScreenOn back to
+             true if you need the dashboard visible during bench
+             validation. -->
     </style>
 </resources>
