@@ -22,11 +22,18 @@ log = logging.getLogger(__name__)
 
 
 def site_for(device_id: str) -> str | None:
-    # Current naming (SIM-prefixed simulators + real PHONE-PATRICK-* phones)
+    # Current naming (SIM-prefixed simulators + real PHONE-* phones).
+    # Five-base layout for the 500-phone load test.
     if device_id.startswith("SIM-PATRICK-"):
         return "Patrick"
     if device_id.startswith("SIM-SHAW-"):
         return "Shaw"
+    if device_id.startswith("SIM-LANGLEY-"):
+        return "Langley"
+    if device_id.startswith("SIM-VANDENBERG-"):
+        return "Vandenberg"
+    if device_id.startswith("SIM-NELLIS-"):
+        return "Nellis"
     if device_id.startswith("PHONE-PATRICK-"):
         return "Patrick"
     # Legacy IDs that predate the SIM-prefix rename — kept so
