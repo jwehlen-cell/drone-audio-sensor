@@ -64,6 +64,7 @@
                     <th>Device</th>
                     <th>State</th>
                     <th>Site</th>
+                    <th>Type</th>
                     <th>Freshness</th>
                     <th>Battery</th>
                     <th>Network</th>
@@ -81,7 +82,7 @@
                        the dot reflects last-seen freshness: green when
                        fresh, yellow when stale, grey when offline / no
                        heartbeat ever received. #}
-                    <td class="dot {% if row.has_recent_detection %}fresh-red{% elif fresh is none %}fresh-grey{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% else %}fresh-grey{% endif %}"></td>
+                    <td class="dot {% if row.has_recent_detection %}fresh-red{% elif fresh is none %}fresh-grey{% elif fresh < stale_warning_seconds %}fresh-green{% elif fresh < stale_offline_seconds %}fresh-yellow{% elif row.expected_shutdown %}fresh-expected{% else %}fresh-grey{% endif %}"></td>
                     <td><code>{{ l.device_id }}</code></td>
                     <td>
                         {% if r %}
@@ -90,8 +91,31 @@
                             <span class="state state-unknown">unregistered</span>
                         {% endif %}
                     </td>
-                    <td>{{ l.site_label or '—' }}</td>
-                    <td>{% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}</td>
+                    {# Replay-fleet harnesses stuffed both the station id
+                       and a "30s/wav" cadence/codec tag into the same
+                       assigned_site_label field. Split them at render time:
+                       the bit before the parens is the human-facing site
+                       name, the parenthesized suffix becomes its own
+                       "Type" column. Labels without a parenthesized
+                       suffix fall through unchanged. #}
+                    {% set _label = l.site_label or '' %}
+                    {% set _lp = _label.find('(') %}
+                    {% if _lp > 0 and _label.endswith(')') %}
+                        <td>{{ _label[:_lp].rstrip() or '—' }}</td>
+                        <td><code>{{ _label[_lp+1:-1] }}</code></td>
+                    {% else %}
+                        <td>{{ _label or '—' }}</td>
+                        <td>—</td>
+                    {% endif %}
+                    <td>
+                        {% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}
+                        {% if row.expected_shutdown %}
+                            <span class="badge badge-expected"
+                                  title="Device reported it was about to power off — expected offline, not a silent failure">
+                                ⏻ expected{% if row.shutdown_reason %} ({{ row.shutdown_reason }}){% endif %}
+                            </span>
+                        {% endif %}
+                    </td>
                     <td>{{ l.battery_percent }}%</td>
                     <td>{{ l.network_type }}</td>
                     <td>

@@ -19,6 +19,7 @@
                 <th>Device</th>
                 <th>State</th>
                 <th>Site</th>
+                <th>Type</th>
                 <th>Public key</th>
                 <th>Last seen (UTC)</th>
                 <th>Wipe</th>
@@ -31,7 +32,16 @@
             <tr>
                 <td><code>{{ d.device_id }}</code></td>
                 <td><span class="state state-{{ d.state }}">{{ d.state }}</span></td>
-                <td>{{ d.site_label or '—' }}</td>
+                {# Same Site/Type split as status.html (see comment there). #}
+                {% set _label = d.site_label or '' %}
+                {% set _lp = _label.find('(') %}
+                {% if _lp > 0 and _label.endswith(')') %}
+                    <td>{{ _label[:_lp].rstrip() or '—' }}</td>
+                    <td><code>{{ _label[_lp+1:-1] }}</code></td>
+                {% else %}
+                    <td>{{ _label or '—' }}</td>
+                    <td>—</td>
+                {% endif %}
                 <td>
                     {% if d.has_public_key %}
                         <span title="last 12 chars of the PEM body">{{ d.public_key_fingerprint }}</span>
