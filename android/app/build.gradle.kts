@@ -1,4 +1,5 @@
 import com.google.protobuf.gradle.id
+import com.google.protobuf.gradle.proto
 
 plugins {
     id("com.android.application")
@@ -66,7 +67,9 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
-            proto.srcDirs("../../proto")
+            proto {
+                srcDir("../../proto")
+            }
         }
     }
 
