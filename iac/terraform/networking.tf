@@ -24,12 +24,6 @@ resource "google_vpc_access_connector" "connector" {
   machine_type  = "e2-micro"
 
   depends_on = [google_project_service.enabled]
-
-  lifecycle {
-    ignore_changes = [
-      max_throughput,
-    ]
-  }
 }
 
 resource "google_compute_global_address" "private_service_range" {
