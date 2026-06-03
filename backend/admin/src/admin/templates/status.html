@@ -99,7 +99,11 @@
                        "Type" column. Labels without a parenthesized
                        suffix fall through unchanged. #}
                     {% set _label = l.site_label or '' %}
-                    {% set _lp = _label.find('(') %}
+                    {# rfind so a description that contains its own parens
+                       — like a latitude "(28.215°N)" — doesn't capture the
+                       wrong segment; the cadence/codec suffix is always
+                       the LAST parenthesized chunk. #}
+                    {% set _lp = _label.rfind('(') %}
                     {% if _lp > 0 and _label.endswith(')') %}
                         <td>{{ _label[:_lp].rstrip() or '—' }}</td>
                         <td><code>{{ _label[_lp+1:-1] }}</code></td>

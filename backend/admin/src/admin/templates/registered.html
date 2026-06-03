@@ -37,7 +37,9 @@
                    the device's label has no "(Ns/codec)" suffix, so
                    real-phone rows aren't empty in the Type column. #}
                 {% set _label = d.site_label or '' %}
-                {% set _lp = _label.find('(') %}
+                {# rfind so a description with its own parens doesn't
+                   eat the cadence/codec suffix (which is always last). #}
+                {% set _lp = _label.rfind('(') %}
                 {% if _lp > 0 and _label.endswith(')') %}
                     <td>{{ _label[:_lp].rstrip() or '—' }}</td>
                     <td><code>{{ _label[_lp+1:-1] }}</code></td>
