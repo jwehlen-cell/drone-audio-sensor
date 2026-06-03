@@ -15,6 +15,10 @@
     <string name="last_ack_label">Last ACK</string>
     <string name="last_ack_never">never</string>
 
+    <string name="up_since_label">Up since</string>
+    <string name="uptime_label">Total uptime</string>
+    <string name="version_label">Version</string>
+
     <string name="state_idle">Idle</string>
     <string name="state_connecting">Connecting</string>
     <string name="state_streaming">Streaming</string>

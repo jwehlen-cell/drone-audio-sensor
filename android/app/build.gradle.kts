@@ -15,8 +15,12 @@ android {
         applicationId = "com.dronesensor.app"
         minSdk = 28
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // Gen 2.X version scheme — X = versionCode, bumped on each
+        // release. The on-device screen renders "Gen 2.${VERSION_CODE}"
+        // so the installer can read which build is on the phone at a
+        // glance.
+        versionCode = 2
+        versionName = "Gen 2.2"
 
         // Provisioning defaults. Today these are baked at build time via
         // gradle properties: ./gradlew installDebug -PgrpcHost=... -Psite=...

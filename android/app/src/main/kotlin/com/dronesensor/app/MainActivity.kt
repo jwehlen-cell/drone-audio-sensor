@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.View
 import android.widget.ArrayAdapter
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,8 +24,12 @@ import com.dronesensor.app.setup.WifiCandidate
 import com.dronesensor.app.setup.WifiSetupHelper
 import com.dronesensor.app.stream.StreamMetrics
 import com.dronesensor.app.stream.StreamState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -48,6 +53,11 @@ class MainActivity : AppCompatActivity() {
         val scheme = if (endpoint.useTls) "grpcs" else "grpc"
         binding.valueEndpoint.text = "$scheme://${endpoint.host}:${endpoint.port}"
 
+        // Version: "Gen 2.${VERSION_CODE}". versionCode is bumped on
+        // each release so the operator can confirm at a glance which
+        // build is on the phone.
+        binding.valueVersion.text = "Gen 2.${BuildConfig.VERSION_CODE}"
+
         binding.buttonStart.setOnClickListener { ensurePermissionsThenStart() }
         binding.buttonStop.setOnClickListener { AudioCaptureService.stop(this) }
 
@@ -63,6 +73,42 @@ class MainActivity : AppCompatActivity() {
 
         observeServiceStatus()
         observeSetupSignals()
+        observeUptime()
+    }
+
+    /**
+     * Repaint Up since + Total uptime once per second. Boot wall-
+     * clock is derived as ``System.currentTimeMillis() -
+     * SystemClock.elapsedRealtime()`` (the latter ticks across deep
+     * sleep). The ticker is gated on STARTED so it pauses when the
+     * activity goes off-screen.
+     */
+    private fun observeUptime() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                val upSinceFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                while (true) {
+                    val elapsedMs = SystemClock.elapsedRealtime()
+                    val bootMs = System.currentTimeMillis() - elapsedMs
+                    binding.valueUpSince.text = upSinceFmt.format(Date(bootMs))
+                    binding.valueUptime.text = formatUptime(elapsedMs)
+                    delay(1_000)
+                }
+            }
+        }
+    }
+
+    private fun formatUptime(elapsedMs: Long): String {
+        val totalSec = elapsedMs / 1000
+        val days = totalSec / 86_400
+        val hours = (totalSec % 86_400) / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        return when {
+            days > 0 -> String.format(Locale.US, "%dd %dh %dm %ds", days, hours, minutes, seconds)
+            hours > 0 -> String.format(Locale.US, "%dh %dm %ds", hours, minutes, seconds)
+            else -> String.format(Locale.US, "%dm %ds", minutes, seconds)
+        }
     }
 
     override fun onResume() {
