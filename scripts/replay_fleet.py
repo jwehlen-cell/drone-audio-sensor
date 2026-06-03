@@ -121,6 +121,64 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_CLIP_PATH_DEFAULT = _REPO_ROOT / "data/test_clips/drone_flyby_test_16k_mono.wav"
 GROUND_TRUTH_PATH_DEFAULT = _REPO_ROOT / "data/test_clips/ground_truth.json"
 
+
+# Multi-base fleet generator for the 500-phone load test. Each base
+# matches a SIM-{CALLSIGN}-### prefix in seed_test_bases.py — generate
+# the same lat/lon scatter with the same rng seed so the simulator
+# phones land where the Firestore device docs were seeded.
+_LOAD_BASES: tuple[tuple[str, str, float, float], ...] = (
+    # (site_key, callsign, center_lat, center_lon)
+    ("Patrick",         "PATRICK",    28.235,   -80.6005),
+    ("Shaw",            "SHAW",       33.971,   -80.461),
+    ("Langley",         "LANGLEY",    37.0833,  -76.3603),
+    ("Vandenberg",      "VANDENBERG", 34.7420, -120.5724),
+    ("Nellis",          "NELLIS",     36.2356, -115.0344),
+    ("Hickam",          "HICKAM",     21.3286, -157.9472),
+    ("WrightPatterson", "WPAFB",      39.8138,  -84.0494),
+)
+_LOAD_SCATTER_RADIUS_KM = 1.5
+_LOAD_SEED = 42  # matches seed_test_bases.py for placement consistency
+
+
+def _scatter(center_lat: float, center_lon: float,
+             radius_km: float, rng: random.Random) -> tuple[float, float]:
+    """Mirror of seed_test_bases.scatter so the simulator phones land
+    on the same coordinates the Firestore device docs were seeded with."""
+    import math
+    r = radius_km * math.sqrt(rng.random())
+    theta = rng.uniform(0, 2 * math.pi)
+    dlat = (r / 111.0) * math.cos(theta)
+    dlon = (r / (111.0 * math.cos(math.radians(center_lat)))) * math.sin(theta)
+    return center_lat + dlat, center_lon + dlon
+
+
+def build_load_test_stations(
+    base_keys: list[str], phones_per_base: int, cadence_s: int, codec: str,
+) -> tuple[tuple[str, int, str, float, float, str], ...]:
+    """Generate a SIM-{CALLSIGN}-### station fleet for the 500-phone
+    load test. Same (callsign, scatter, seed) as seed_test_bases.py so
+    the simulator's handshake-emitted lat/lon lines up with the
+    pre-seeded Firestore docs."""
+    by_key = {b[0]: b for b in _LOAD_BASES}
+    bases = [by_key[k] for k in base_keys if k in by_key]
+    if not bases:
+        raise SystemExit(
+            f"--bases listed no known base. Known: {[b[0] for b in _LOAD_BASES]}"
+        )
+    rng = random.Random(_LOAD_SEED)
+    out: list[tuple[str, int, str, float, float, str]] = []
+    for site_key, callsign, center_lat, center_lon in bases:
+        for i in range(1, phones_per_base + 1):
+            lat, lon = _scatter(center_lat, center_lon,
+                                _LOAD_SCATTER_RADIUS_KM, rng)
+            did = f"SIM-{callsign}-{i:03d}"
+            desc = (
+                f"SIMULATED – {site_key} load-test phone "
+                f"({lat:.4f}, {lon:.4f})"
+            )
+            out.append((did, cadence_s, codec, lat, lon, desc))
+    return tuple(out)
+
 # Firestore polling cadence. Tradeoff: faster polling sees detections
 # sooner for the rolling report; slower means fewer Firestore reads.
 DETECTION_POLL_INTERVAL_S = 5.0
@@ -752,11 +810,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help=f"Test WAV clip to loop "
                         f"(default {TEST_CLIP_PATH_DEFAULT}).")
     p.add_argument("--ground-truth", type=Path,
-                   default=GROUND_TRUTH_PATH_DEFAULT,
-                   help=f"Ground-truth JSON "
-                        f"(default {GROUND_TRUTH_PATH_DEFAULT}).")
+                   default=None,
+                   help="Ground-truth JSON (defaults to <clip>.ground_truth.json "
+                        "or data/test_clips/ground_truth.json if present; "
+                        "omitted entirely if no file is found — catch-rate "
+                        "columns then stay at 0).")
     p.add_argument("--duration", type=float, default=None,
                    help="Cap runtime in seconds (default: run forever).")
+    # --- Load-test fleet generator (alternative to STATIONS_DEFAULT). ---
+    # When --bases is set, replace the 10-station Patrick fleet with a
+    # programmatic SIM-{CALLSIGN}-### scatter so the same harness drives
+    # both the cadence/codec science test and the 500-phone load test.
+    p.add_argument("--bases", default="",
+                   help="Comma-separated base keys to seed stations for "
+                        "(Patrick, Shaw, Langley, Vandenberg, Nellis, "
+                        "Hickam, WrightPatterson). Empty = use the "
+                        "hard-coded Patrick fleet.")
+    p.add_argument("--phones-per-base", type=int, default=100,
+                   help="Stations per base when --bases is set (default 100).")
+    p.add_argument("--cadence-seconds", type=int, default=30,
+                   help="Cadence applied to every load-test station (default 30).")
+    p.add_argument("--codec", default="flac",
+                   help="Codec applied to every load-test station "
+                        "(wav|flac|pcm16; default flac).")
     p.add_argument("--report-interval", type=float, default=300.0,
                    help="Rolling summary every N seconds (default 300).")
     return p.parse_args(argv)
@@ -769,11 +845,6 @@ def main(argv: list[str]) -> int:
         raise SystemExit(
             f"Test clip not found: {args.clip}\n"
             f"  Place a 16 kHz mono PCM16 WAV there, or pass --clip <path>."
-        )
-    if not args.ground_truth.is_file():
-        raise SystemExit(
-            f"Ground truth not found: {args.ground_truth}\n"
-            f"  Provide a JSON with 'flybys' entries or per-second labels."
         )
 
     _ensure_pb_stubs()
@@ -790,24 +861,63 @@ def main(argv: list[str]) -> int:
     print(f"Loaded clip: {len(audio)/sr:.1f} s @ {sr} Hz "
           f"({args.clip.name})")
 
-    flybys_in_clip = load_ground_truth(args.ground_truth)
-    print(f"Flybys in clip (start_s, end_s, cpa_s): {flybys_in_clip}")
+    # Ground truth: optional. Try explicit path, then sibling
+    # <clip>.ground_truth.json, then the legacy default. Skip
+    # catch-rate accounting if none is found — load tests don't
+    # always have or need it.
+    flybys_in_clip: list[tuple[float, float, float]] = []
+    gt_candidates: list[Path] = []
+    if args.ground_truth is not None:
+        gt_candidates.append(args.ground_truth)
+    gt_candidates.append(args.clip.with_suffix(".ground_truth.json"))
+    gt_candidates.append(GROUND_TRUTH_PATH_DEFAULT)
+    for cand in gt_candidates:
+        if cand and cand.is_file():
+            flybys_in_clip = load_ground_truth(cand)
+            print(f"Loaded ground truth from {cand}: {flybys_in_clip}")
+            break
+    else:
+        print("No ground truth available; catch-rate columns will stay at 0.")
 
     clip_duration_s = len(audio) / sr
     clock = PlaybackClock(audio, sr)
     harness_start_ts = clock.t0
     start_ts_ms = int(harness_start_ts * 1000)
 
+    if args.bases.strip():
+        base_keys = [b.strip() for b in args.bases.split(",") if b.strip()]
+        fleet_def = build_load_test_stations(
+            base_keys=base_keys,
+            phones_per_base=args.phones_per_base,
+            cadence_s=args.cadence_seconds,
+            codec=args.codec,
+        )
+        print(
+            f"Load-test fleet: {len(fleet_def)} stations across "
+            f"{len(base_keys)} base(s) at {args.cadence_seconds}s/{args.codec}"
+        )
+    else:
+        fleet_def = STATIONS_DEFAULT
+
     stations: dict[str, StationStats] = {}
-    for did, cad, codec, lat, lon, desc in STATIONS_DEFAULT:
+    for did, cad, codec, lat, lon, desc in fleet_def:
         cfg = StationConfig(
             device_id=did, cadence_s=cad, codec=codec,
             latitude=lat, longitude=lon, description=desc,
         )
         stations[did] = StationStats(config=cfg)
     print(f"Fleet: {len(stations)} stations")
-    for s in stations.values():
-        print(f"  {s.config.label()}")
+    # For large fleets, just print a sample so the systemd log doesn't drown.
+    if len(stations) <= 20:
+        for s in stations.values():
+            print(f"  {s.config.label()}")
+    else:
+        sample = list(stations.values())
+        for s in sample[:3]:
+            print(f"  {s.config.label()}")
+        print(f"  ... {len(stations) - 6} more ...")
+        for s in sample[-3:]:
+            print(f"  {s.config.label()}")
 
     stop_event = threading.Event()
     stats_lock = threading.Lock()

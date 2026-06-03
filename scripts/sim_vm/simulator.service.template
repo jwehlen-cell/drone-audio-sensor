@@ -17,7 +17,8 @@ WorkingDirectory=@@INSTALL_DIR@@
 ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/replay_fleet.py \
     --gateway-url @@GATEWAY_URL@@ \
     --project @@GCP_PROJECT@@ \
-    --report-interval 300
+    --report-interval 300 \
+    @@EXTRA_ARGS@@
 StandardOutput=append:/var/log/drone-sensor-dev-sim.log
 StandardError=append:/var/log/drone-sensor-dev-sim.log
 
