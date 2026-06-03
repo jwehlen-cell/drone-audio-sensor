@@ -2,7 +2,6 @@ package com.dronesensor.app.stream
 
 import android.media.MediaCodec
 import android.media.MediaFormat
-import android.os.Build
 import android.util.Log
 import java.nio.ByteBuffer
 import kotlin.math.min
@@ -30,9 +29,17 @@ import kotlin.math.min
  */
 class FlacEncoder(private val sampleRateHz: Int) {
 
-    /** True if the device has a working FLAC encoder. Computed once. */
+    /** True if the device has a working FLAC encoder. Computed once.
+     *
+     * No API-level floor — the MediaCodec FLAC encoder has shipped in
+     * AOSP since API 21 and is present on most OEM firmwares from
+     * Android 7 onward (specifically including Samsung Galaxy S8 /
+     * SM-G950U1 running Android 9, which is the current Patrick
+     * production hardware). Devices that genuinely lack the encoder
+     * still get caught by ``createEncoderByType`` throwing, fall
+     * through to the safe (pcm16, "") path in ``encode()`` and stream
+     * uncompressed — no frames are lost. */
     val supported: Boolean by lazy {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@lazy false
         try {
             MediaCodec.createEncoderByType(MIME_FLAC).also { it.release() }
             true
