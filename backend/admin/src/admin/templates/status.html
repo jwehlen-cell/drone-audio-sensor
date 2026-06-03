@@ -105,7 +105,17 @@
                         <td><code>{{ _label[_lp+1:-1] }}</code></td>
                     {% else %}
                         <td>{{ _label or '—' }}</td>
-                        <td>—</td>
+                        {# No "(Ns/codec)" tag in the label (real phones
+                           registered with a plain "Patrick"). Derive Type
+                           from the device's per-frame duration recorded
+                           on its Firestore doc; falls through to "—"
+                           when the doc has no frame_duration_ms yet. #}
+                        {% set _fd = r.frame_duration_ms if r else none %}
+                        {% if _fd %}
+                            <td><code>{{ (_fd / 1000.0) | round(0, 'floor') | int }}s</code></td>
+                        {% else %}
+                            <td>—</td>
+                        {% endif %}
                     {% endif %}
                     <td>
                         {% if fresh is none %}—{% else %}{{ "%.0f s" | format(fresh) }}{% endif %}

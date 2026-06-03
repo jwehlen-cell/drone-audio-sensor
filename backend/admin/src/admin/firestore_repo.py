@@ -43,6 +43,12 @@ class DeviceRow:
     location_lon: float | None
     location_accuracy_m: float | None
     location_timestamp_ms: int | None
+    # Per-frame duration the device declared in its last handshake, in
+    # milliseconds. The admin's Type column uses this as a fallback when
+    # ``assigned_site_label`` doesn't carry an explicit "(Ns/codec)" tag
+    # (e.g. real Android phones that were provisioned with just
+    # "Patrick" as the site label).
+    frame_duration_ms: int | None
 
 
 # Map raw subtype tokens to ``<maker> <model>`` display strings. Kept in
@@ -251,6 +257,7 @@ def _to_device_row(device_id: str, data: dict[str, Any]) -> DeviceRow:
         location_lon=lon,
         location_accuracy_m=_float(data.get("location_accuracy_m")),
         location_timestamp_ms=_int(data.get("location_timestamp_ms")),
+        frame_duration_ms=_int(data.get("frame_duration_ms")),
     )
 
 

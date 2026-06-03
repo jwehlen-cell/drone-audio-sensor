@@ -32,7 +32,10 @@
             <tr>
                 <td><code>{{ d.device_id }}</code></td>
                 <td><span class="state state-{{ d.state }}">{{ d.state }}</span></td>
-                {# Same Site/Type split as status.html (see comment there). #}
+                {# Same Site/Type split as status.html (see comment there).
+                   Falls back to frame_duration_ms (e.g. 1000 → 1s) when
+                   the device's label has no "(Ns/codec)" suffix, so
+                   real-phone rows aren't empty in the Type column. #}
                 {% set _label = d.site_label or '' %}
                 {% set _lp = _label.find('(') %}
                 {% if _lp > 0 and _label.endswith(')') %}
@@ -40,7 +43,11 @@
                     <td><code>{{ _label[_lp+1:-1] }}</code></td>
                 {% else %}
                     <td>{{ _label or '—' }}</td>
-                    <td>—</td>
+                    {% if d.frame_duration_ms %}
+                        <td><code>{{ (d.frame_duration_ms / 1000.0) | round(0, 'floor') | int }}s</code></td>
+                    {% else %}
+                        <td>—</td>
+                    {% endif %}
                 {% endif %}
                 <td>
                     {% if d.has_public_key %}
