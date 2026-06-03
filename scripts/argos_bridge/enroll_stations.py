@@ -53,19 +53,33 @@ def main() -> None:
     coll = db.collection(args.collection)
     pubdir = Path(args.pubkey_dir)
 
+    # Use the short Argos id (SH011) for the public-key filename so a
+    # SIM-prefix rename doesn't need fresh PKI material.
+    from stations import short_id  # local import keeps the CLI import-light
+
     now_ms = int(time.time() * 1000)
     written = 0
     for st in STATIONS:
-        pub_path = pubdir / f"{st.station_id}.pub.pem"
+        pub_path = pubdir / f"{short_id(st.station_id)}.pub.pem"
         if not pub_path.is_file():
-            log.warning("no public key for %s at %s; skipping", st.station_id, pub_path)
-            continue
+            # Backward-compat: older mint runs wrote to {full_id}.pub.pem.
+            legacy = pubdir / f"{st.station_id}.pub.pem"
+            if legacy.is_file():
+                pub_path = legacy
+            else:
+                log.warning("no public key for %s at %s; skipping", st.station_id, pub_path)
+                continue
         pem = pub_path.read_text()
+        # site_label gets the descriptive sentence per-station from
+        # stations.py; the admin's Site column renders it verbatim,
+        # making "SIMULATED – Shaw AFB / Sumter SC cluster ... SH011"
+        # the visible name on every row.
+        label = st.description or args.site_label
         doc = {
             "device_id": st.station_id,
             "state": "active",
             "site": args.site,
-            "assigned_site_label": args.site_label,
+            "assigned_site_label": label,
             "app_version": "argos-sim/1.0",
             "device_model": "argos-bridge",
             "os_version": "argos-sim/1.0",
@@ -77,11 +91,14 @@ def main() -> None:
             "location_accuracy_m": 10.0,
             "location_status": "current",
             "location_timestamp_ms": now_ms,
-            "admin_notes": "Argos UAT replay simulator (TEST credentials)",
+            "admin_notes": st.description,
         }
         coll.document(st.station_id).set(doc, merge=True)
         written += 1
-        log.info("enrolled %s at %.6f,%.6f", st.station_id, st.latitude, st.longitude)
+        log.info(
+            "enrolled %s (%s) at %.6f,%.6f",
+            st.station_id, short_id(st.station_id), st.latitude, st.longitude,
+        )
 
     log.info("done; %d/%d enrolled", written, len(STATIONS))
 

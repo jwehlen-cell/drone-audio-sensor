@@ -194,20 +194,27 @@ def main() -> None:
     _add_version(sm, ca_key_secret, _key_pem(ca_key))
     log.info("ca uploaded -> %s, %s", ca_cert_secret, ca_key_secret)
 
+    # Secret + pubkey filenames key on the short Argos id (SH011), not
+    # the full SIM-SHAW- prefixed station id, so the PKI material is
+    # reused across naming changes. The CN/SAN in the issued cert still
+    # uses the full id for unambiguous identification on the wire.
+    from stations import short_id  # local import keeps the CLI import-light
+
     for st in STATIONS:
+        sid = short_id(st.station_id)
         leaf_key, leaf_cert = mint_leaf(
             station_id=st.station_id, ca_key=ca_key, ca_cert=ca_cert
         )
         cert_secret = _ensure_secret(
-            sm, args.project, f"drone-sensor-dev-sim-cert-{st.station_id}"
+            sm, args.project, f"drone-sensor-dev-sim-cert-{sid}"
         )
         key_secret = _ensure_secret(
-            sm, args.project, f"drone-sensor-dev-sim-key-{st.station_id}"
+            sm, args.project, f"drone-sensor-dev-sim-key-{sid}"
         )
         _add_version(sm, cert_secret, _cert_pem(leaf_cert))
         _add_version(sm, key_secret, _key_pem(leaf_key))
 
-        pub_path = out_dir / f"{st.station_id}.pub.pem"
+        pub_path = out_dir / f"{sid}.pub.pem"
         pub_path.write_bytes(_pubkey_pem(leaf_key))
 
         log.info(

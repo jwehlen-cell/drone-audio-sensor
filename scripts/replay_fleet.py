@@ -79,32 +79,42 @@ from simulate_soh_phones import (  # noqa: E402
 # Configuration — edit this table to reshape the fleet
 # ---------------------------------------------------------------------------
 
-# Each entry: (device_id, cadence_seconds, codec, latitude, longitude).
-# The first 10 device IDs map to the already-provisioned simulator
-# phones in argosuat (same public keys, etc.). Codec must match what
-# the inference worker accepts ("wav", "flac", "pcm16" / "" for raw).
-# Lat/lon distribute the 10 stations along the Atlantic coast of
-# Patrick SFB (Cocoa Beach, FL): a ~5 km north-south line from the
-# southern base perimeter (28.215 N) to the northern perimeter
-# (28.260 N), all on the shoreline at ~-80.6005 W. The replay
-# harness includes location in every handshake so the gateway/
-# Firestore admin map reflect coast positions, not the prior
-# Palm Beach test fixtures.
-STATIONS_DEFAULT: tuple[tuple[str, int, str, float, float], ...] = (
+# Each entry: (device_id, cadence_seconds, codec, latitude, longitude,
+#              description).
+#
+# Device IDs carry a SIM- prefix so operators can tell at a glance
+# they're not real phones. The description is a sentence that the
+# admin's Site column renders verbatim, giving each row a clear
+# place-name + coordinate rather than just an opaque station id.
+#
+# Locations: a ~5 km north-south line from the Patrick SFB southern
+# perimeter (28.2150 N) to the northern perimeter (28.2600 N), all
+# on the shoreline at ~-80.6005 W. The harness puts location on every
+# handshake so the gateway and admin map reflect this layout.
+STATIONS_DEFAULT: tuple[tuple[str, int, str, float, float, str], ...] = (
     # 5 stations at 30 s (3 wav, 2 flac)
-    ("DRONE-SENSOR-001", 30, "wav",  28.2150, -80.6005),  # south end
-    ("DRONE-SENSOR-002", 30, "wav",  28.2200, -80.6005),
-    ("DRONE-SENSOR-003", 30, "wav",  28.2250, -80.6005),
-    ("DRONE-SENSOR-004", 30, "flac", 28.2300, -80.6005),
-    ("DRONE-SENSOR-005", 30, "flac", 28.2350, -80.6005),  # Patrick center
+    ("SIM-PATRICK-001", 30, "wav",  28.2150, -80.6005,
+     "SIMULATED – Patrick SFB coast, south perimeter (28.215°N)"),
+    ("SIM-PATRICK-002", 30, "wav",  28.2200, -80.6005,
+     "SIMULATED – Patrick SFB coast, south flank (28.220°N)"),
+    ("SIM-PATRICK-003", 30, "wav",  28.2250, -80.6005,
+     "SIMULATED – Patrick SFB coast, south of center (28.225°N)"),
+    ("SIM-PATRICK-004", 30, "flac", 28.2300, -80.6005,
+     "SIMULATED – Patrick SFB coast, just south of center (28.230°N)"),
+    ("SIM-PATRICK-005", 30, "flac", 28.2350, -80.6005,
+     "SIMULATED – Patrick SFB coast, center (28.235°N)"),
     # 4 stations at 5 s (2 wav, 2 flac)
-    ("DRONE-SENSOR-006",  5, "wav",  28.2400, -80.6005),
-    ("DRONE-SENSOR-007",  5, "wav",  28.2450, -80.6005),
-    ("DRONE-SENSOR-008",  5, "flac", 28.2500, -80.6005),
-    ("DRONE-SENSOR-009",  5, "flac", 28.2550, -80.6005),
-    # 1 station at 1 s (flac — the heaviest feed lands on the
-    # compressed path so the FLAC decode sees the highest frame rate)
-    ("DRONE-SENSOR-010",  1, "flac", 28.2600, -80.6005),  # north end
+    ("SIM-PATRICK-006",  5, "wav",  28.2400, -80.6005,
+     "SIMULATED – Patrick SFB coast, just north of center (28.240°N)"),
+    ("SIM-PATRICK-007",  5, "wav",  28.2450, -80.6005,
+     "SIMULATED – Patrick SFB coast, north of center (28.245°N)"),
+    ("SIM-PATRICK-008",  5, "flac", 28.2500, -80.6005,
+     "SIMULATED – Patrick SFB coast, north flank (28.250°N)"),
+    ("SIM-PATRICK-009",  5, "flac", 28.2550, -80.6005,
+     "SIMULATED – Patrick SFB coast, near north perimeter (28.255°N)"),
+    # 1 station at 1 s (flac — heaviest feed on the compressed path)
+    ("SIM-PATRICK-010",  1, "flac", 28.2600, -80.6005,
+     "SIMULATED – Patrick SFB coast, north perimeter (28.260°N)"),
 )
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -131,6 +141,7 @@ class StationConfig:
     codec: str
     latitude: float
     longitude: float
+    description: str = ""
 
     def cadence_group(self) -> str:
         return f"{self.cadence_s:02d}s"
@@ -285,11 +296,15 @@ def stream_one_frame(
     try:
         stub = pb_grpc.DroneAudioStreamStub(channel)
 
-        # The Site column shows the device's original station name with
-        # its cadence + codec in parentheses, so operators can tell at a
-        # glance which station fired AND how it was configured. Example:
-        #   "DRONE-SENSOR-001 (30s/wav)"
-        site_tag = f"{config.device_id} ({config.cadence_s:02d}s/{config.codec})"
+        # The Site column gets a sentence describing where this
+        # simulated station lives; the Type column splits off the
+        # parenthesized cadence/codec suffix at render time. Example:
+        #   "SIMULATED – Patrick SFB coast, south perimeter (28.215°N) (30s/wav)"
+        # → Site: "SIMULATED – Patrick SFB coast, south perimeter (28.215°N)"
+        # → Type: "30s/wav"
+        # Falls back to the device id when no description was set.
+        _name = config.description or config.device_id
+        site_tag = f"{_name} ({config.cadence_s:02d}s/{config.codec})"
 
         def request_iter():
             yield pb.ClientStreamMessage(
@@ -784,10 +799,10 @@ def main(argv: list[str]) -> int:
     start_ts_ms = int(harness_start_ts * 1000)
 
     stations: dict[str, StationStats] = {}
-    for did, cad, codec, lat, lon in STATIONS_DEFAULT:
+    for did, cad, codec, lat, lon, desc in STATIONS_DEFAULT:
         cfg = StationConfig(
             device_id=did, cadence_s=cad, codec=codec,
-            latitude=lat, longitude=lon,
+            latitude=lat, longitude=lon, description=desc,
         )
         stations[did] = StationStats(config=cfg)
     print(f"Fleet: {len(stations)} stations")

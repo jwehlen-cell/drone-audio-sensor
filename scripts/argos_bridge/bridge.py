@@ -74,7 +74,7 @@ from google.cloud import bigquery, storage
 
 # Local imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stations import STATIONS, BY_ID
+from stations import STATIONS, BY_ID, short_id
 
 # Reach the generated proto. The VM provisioner runs grpcio-tools to
 # regenerate these into scripts/, same as replay_fleet.py expects.
@@ -195,7 +195,7 @@ class LocationResolver:
             )
 
     def registry_lookup(self, station_id: str) -> Optional[tuple[float, float]]:
-        return self._registry.get(station_id)
+        return self._registry.get(short_id(station_id))
 
     def resolve(
         self, station_id: str, sidecar: Optional[dict]
@@ -224,7 +224,7 @@ class LocationResolver:
             )
 
             # Sanity guard: distance check against registry.
-            reg = self._registry.get(station_id)
+            reg = self._registry.get(short_id(station_id))
             if reg is not None:
                 dist = haversine_km(lat, lon, reg[0], reg[1])
                 if dist > SANITY_DIST_KM:
@@ -256,7 +256,7 @@ class LocationResolver:
             )
 
         # Fallback to registry.
-        reg = self._registry.get(station_id)
+        reg = self._registry.get(short_id(station_id))
         if reg is None:
             return None
         return ResolvedLocation(
@@ -319,7 +319,10 @@ class GcsClipSource:
         log.info("gcs source ready bucket=%s prefix=%s", bucket_name, self._prefix)
 
     def list_latest(self, station_id: str, window_hours: int) -> list[ClipRef]:
-        prefix = f"{self._prefix}/{station_id}/"
+        # GCS keys clips by the original Argos identifier (e.g. SH011),
+        # not by our SIM-SHAW-* prefixed simulator id. Translate before
+        # listing.
+        prefix = f"{self._prefix}/{short_id(station_id)}/"
         clips: list[ClipRef] = []
         for blob in self._client.list_blobs(self._bucket, prefix=prefix):
             if not blob.name.lower().endswith(".wav"):
@@ -399,7 +402,13 @@ def _device_location_pb(loc: ResolvedLocation) -> pb.DeviceLocation:
 def _handshake_msg(
     station_id: str, loc: ResolvedLocation, sample_rate_hz: int
 ) -> pb.ClientStreamMessage:
-    site_tag = f"{station_id} ({int(CLIP_SECONDS)}s/{CODEC})"
+    # Admin Site column gets the descriptive sentence from stations.py
+    # (e.g. "SIMULATED – Shaw AFB / Sumter SC cluster ... SH011 (33.969°N)")
+    # with the (cadence/codec) suffix that the Type column splits off.
+    # Falls back to the device id when the station isn't in the roster.
+    station = BY_ID.get(station_id)
+    name = station.description if station and station.description else station_id
+    site_tag = f"{name} ({int(CLIP_SECONDS)}s/{CODEC})"
     return pb.ClientStreamMessage(
         handshake=pb.ConnectHandshake(
             device_id=station_id,

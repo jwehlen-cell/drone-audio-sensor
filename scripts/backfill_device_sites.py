@@ -22,6 +22,16 @@ log = logging.getLogger(__name__)
 
 
 def site_for(device_id: str) -> str | None:
+    # Current naming (SIM-prefixed simulators + real PHONE-PATRICK-* phones)
+    if device_id.startswith("SIM-PATRICK-"):
+        return "Patrick"
+    if device_id.startswith("SIM-SHAW-"):
+        return "Shaw"
+    if device_id.startswith("PHONE-PATRICK-"):
+        return "Patrick"
+    # Legacy IDs that predate the SIM-prefix rename — kept so
+    # re-running the backfill on an older snapshot still classifies
+    # everything correctly.
     if device_id.startswith("DRONE-SENSOR-"):
         return "Patrick"
     if device_id.startswith("SH"):
