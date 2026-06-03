@@ -30,6 +30,17 @@ __pycache__/
 venv/
 backend/gateway/proto_gen/
 
+# Protos regenerated at VM startup (see scripts/argos_bridge/startup.sh,
+# scripts/argos_live_pull, etc.). Don't commit the generated stubs;
+# the source of truth is proto/drone_audio.proto.
+scripts/drone_audio_pb2.py
+scripts/drone_audio_pb2_grpc.py
+
+# PKI public keys minted by scripts/argos_bridge/mint_test_pki.py;
+# the matching private material lives in argosuat Secret Manager.
+# Already covered by the *.pem rule below, listed here for clarity.
+scripts/argos_bridge/out_pubkeys/
+
 # Terraform
 **/.terraform/
 *.tfstate

@@ -10,7 +10,7 @@
 #      `admin_image` pinned to :<sha> so Terraform rolls a new Cloud
 #      Run revision.
 substitutions:
-  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _REPO:        us-west2-docker.pkg.dev/argosuat/drone-sensor-images-dev
   _TAG:         latest
 
 options:
