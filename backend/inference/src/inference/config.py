@@ -36,8 +36,12 @@ class Settings(BaseSettings):
     dense_classifier_path: str = "/app/models/drone_classifier_binary.keras"
     subtype_classifier_path: str = "/app/models/drone_classifier_subtype.keras"
     subtype_labels_path: str = "/app/models/drone_classifier_subtype.labels.json"
-    model_name: str = "yamnet+erau-binary+subtype"
-    model_version: str = "erau-2024.3-v2"
+    # "Angels Envy" is the QST + USAFA + night-negatives retrain
+    # (yamnet-drone-detector commit 3ede0de). Names persist across
+    # retrains as long as the dataset family + architecture are the
+    # same — bump the name only when a new training family takes over.
+    model_name: str = "Angels Envy"
+    model_version: str = "angels-envy-2026.06"
     score_buffer_size: int = 5
     detection_threshold: float = 0.5
     # Cadence-aware detection gate. Instead of "K of N frames above
