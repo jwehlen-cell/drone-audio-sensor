@@ -48,11 +48,13 @@ class Base:
 # existing site groupings; the three additions span both coasts +
 # interior so the map renders something interesting at every zoom.
 BASES: tuple[Base, ...] = (
-    Base("Patrick",    "PATRICK",   "Patrick SFB, FL (Cape Canaveral coast)",          28.235,   -80.6005),
-    Base("Shaw",       "SHAW",      "Shaw AFB, SC (Sumter)",                            33.971,   -80.461),
-    Base("Langley",    "LANGLEY",   "Langley AFB, VA (Hampton, mid-Atlantic)",          37.0833,  -76.3603),
-    Base("Vandenberg", "VANDENBERG","Vandenberg SFB, CA (Lompoc, west-coast space)",    34.7420,  -120.5724),
-    Base("Nellis",     "NELLIS",    "Nellis AFB, NV (north of Las Vegas, desert)",      36.2356,  -115.0344),
+    Base("Patrick",        "PATRICK",   "Patrick SFB, FL (Cape Canaveral coast)",          28.235,    -80.6005),
+    Base("Shaw",           "SHAW",      "Shaw AFB, SC (Sumter)",                            33.971,    -80.461),
+    Base("Langley",        "LANGLEY",   "Langley AFB, VA (Hampton, mid-Atlantic)",          37.0833,   -76.3603),
+    Base("Vandenberg",     "VANDENBERG","Vandenberg SFB, CA (Lompoc, west-coast space)",    34.7420,   -120.5724),
+    Base("Nellis",         "NELLIS",    "Nellis AFB, NV (north of Las Vegas, desert)",      36.2356,   -115.0344),
+    Base("Hickam",         "HICKAM",    "JB Pearl Harbor–Hickam, HI (Oahu, tropical Pacific)", 21.3286, -157.9472),
+    Base("WrightPatterson","WPAFB",     "Wright-Patterson AFB, OH (Dayton, Midwest)",       39.8138,   -84.0494),
 )
 
 

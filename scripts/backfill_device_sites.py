@@ -34,6 +34,10 @@ def site_for(device_id: str) -> str | None:
         return "Vandenberg"
     if device_id.startswith("SIM-NELLIS-"):
         return "Nellis"
+    if device_id.startswith("SIM-HICKAM-"):
+        return "Hickam"
+    if device_id.startswith("SIM-WPAFB-"):
+        return "WrightPatterson"
     if device_id.startswith("PHONE-PATRICK-"):
         return "Patrick"
     # Legacy IDs that predate the SIM-prefix rename — kept so
