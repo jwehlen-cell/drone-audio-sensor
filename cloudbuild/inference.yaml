@@ -3,8 +3,8 @@
 # 10-15 min; subsequent builds reuse the cached layer.
 substitutions:
   _SERVICE:     drone-sensor-dev-inference
-  _REGION:      us-central1
-  _REPO:        us-central1-docker.pkg.dev/drone-audio-sensor/drone-sensor-images-dev
+  _REGION:      us-west2
+  _REPO:        us-west2-docker.pkg.dev/argosuat/drone-sensor-images-dev
   _TAG:         latest
 
 options:

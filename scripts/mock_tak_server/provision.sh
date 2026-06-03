@@ -26,13 +26,16 @@ gcloud projects add-iam-policy-binding "${PROJECT}" \
 
 # One-time firewall rule: allow TAK ingress from anywhere. Sandbox-only;
 # tighten to Cloud Run egress prefixes if this ever leaves the UAT tier.
-gcloud compute firewall-rules create allow-mock-tak \
+# Firewall rule on drone-sensor-dev-vpc allowing VPC connector subnet
+# (10.8.0.0/28) ingress on the TAK port. Required for the Cloud Run
+# TAK publisher to reach the receiver via its VPC connector.
+gcloud compute firewall-rules create allow-mock-tak-from-connector \
   --project="${PROJECT}" \
-  --network=default \
+  --network=drone-sensor-dev-vpc \
   --direction=INGRESS \
   --action=allow \
   --rules="tcp:${PORT}" \
-  --source-ranges=0.0.0.0/0 \
+  --source-ranges=10.8.0.0/28 \
   --target-tags=mock-tak 2>/dev/null || true
 
 echo "Creating ${INSTANCE} in ${ZONE} (project ${PROJECT})..."
@@ -45,7 +48,8 @@ gcloud compute instances create "${INSTANCE}" \
   --image-project=debian-cloud \
   --boot-disk-size=10GB \
   --boot-disk-type=pd-standard \
-  --network=default \
+  --network=drone-sensor-dev-vpc \
+  --subnet=drone-sensor-dev-subnet \
   --service-account="${SA_EMAIL}" \
   --scopes=https://www.googleapis.com/auth/cloud-platform \
   --tags=mock-tak \
