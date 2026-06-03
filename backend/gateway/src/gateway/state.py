@@ -26,6 +26,15 @@ class DeviceState:
     battery_percent: int
     thermal_state: str
     site_label: str
+    # Extended SOH (zero = unset; phones that don't populate them stay
+    # wire-compatible and the dashboard hides the column).
+    battery_temperature_deci_c: int = 0
+    battery_voltage_mv: int = 0
+    battery_health: int = 0
+    cellular_rssi_dbm: int = 0
+    wifi_rssi_dbm: int = 0
+    free_disk_bytes: int = 0
+    tx_bytes_cumulative: int = 0
 
 
 class DeviceStateStore:
@@ -74,6 +83,16 @@ class DeviceStateStore:
         network_type: str,
         battery_percent: int,
         thermal_state: str,
+        # Extended SOH; default 0 means "phone didn't report it." We
+        # store-as-given so the admin can render whatever the device
+        # actually populates.
+        battery_temperature_deci_c: int = 0,
+        battery_voltage_mv: int = 0,
+        battery_health: int = 0,
+        cellular_rssi_dbm: int = 0,
+        wifi_rssi_dbm: int = 0,
+        free_disk_bytes: int = 0,
+        tx_bytes_cumulative: int = 0,
     ) -> None:
         key = self._key(device_id)
         raw = await self._client.get(key)
@@ -86,6 +105,13 @@ class DeviceStateStore:
             network_type=network_type,
             battery_percent=battery_percent,
             thermal_state=thermal_state,
+            battery_temperature_deci_c=battery_temperature_deci_c,
+            battery_voltage_mv=battery_voltage_mv,
+            battery_health=battery_health,
+            cellular_rssi_dbm=cellular_rssi_dbm,
+            wifi_rssi_dbm=wifi_rssi_dbm,
+            free_disk_bytes=free_disk_bytes,
+            tx_bytes_cumulative=tx_bytes_cumulative,
             last_seen_ms=int(time.time() * 1000),
         )
         await self._client.set(key, json.dumps(data), ex=settings.redis_ttl_seconds)

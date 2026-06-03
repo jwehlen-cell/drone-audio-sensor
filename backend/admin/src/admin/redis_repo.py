@@ -26,6 +26,14 @@ class LiveDeviceState:
     battery_percent: int
     thermal_state: str
     app_version: str
+    # Extended SOH; 0 = phone didn't report (template hides the field).
+    battery_temperature_deci_c: int = 0
+    battery_voltage_mv: int = 0
+    battery_health: int = 0
+    cellular_rssi_dbm: int = 0
+    wifi_rssi_dbm: int = 0
+    free_disk_bytes: int = 0
+    tx_bytes_cumulative: int = 0
 
 
 class RedisRepo:
@@ -101,4 +109,11 @@ def _to_live(data: dict) -> LiveDeviceState:
         battery_percent=int(data.get("battery_percent") or -1),
         thermal_state=str(data.get("thermal_state") or "unspecified"),
         app_version=str(data.get("app_version") or ""),
+        battery_temperature_deci_c=int(data.get("battery_temperature_deci_c") or 0),
+        battery_voltage_mv=int(data.get("battery_voltage_mv") or 0),
+        battery_health=int(data.get("battery_health") or 0),
+        cellular_rssi_dbm=int(data.get("cellular_rssi_dbm") or 0),
+        wifi_rssi_dbm=int(data.get("wifi_rssi_dbm") or 0),
+        free_disk_bytes=int(data.get("free_disk_bytes") or 0),
+        tx_bytes_cumulative=int(data.get("tx_bytes_cumulative") or 0),
     )

@@ -96,6 +96,26 @@ message DeviceHealth {
   // successful check-in.
   int64 last_reboot_timestamp_ms = 10;
   string last_reboot_reason = 11;
+  // Extended SOH for unattended deployments (Patrick et al). All zero
+  // when the device hasn't populated them, so older clients stay
+  // wire-compatible.
+  // Battery temperature in tenths of a degree Celsius (Android's
+  // native unit from ACTION_BATTERY_CHANGED:EXTRA_TEMPERATURE).
+  int32 battery_temperature_deci_c = 12;
+  // Battery voltage in millivolts (ACTION_BATTERY_CHANGED:EXTRA_VOLTAGE).
+  int32 battery_voltage_mv = 13;
+  // Battery health enum mirroring Android's BatteryManager values:
+  //   0 unset, 1 unknown, 2 good, 3 overheat, 4 dead, 5 over-voltage,
+  //   6 unspecified_failure, 7 cold.
+  int32 battery_health = 14;
+  // Cellular signal strength, dBm. Negative when valid; 0 = unset.
+  int32 cellular_rssi_dbm = 15;
+  // WiFi signal strength, dBm. Negative when valid; 0 = unset.
+  int32 wifi_rssi_dbm = 16;
+  // Free bytes on the device's data partition.
+  int64 free_disk_bytes = 17;
+  // Cumulative bytes uploaded by this app's UID since install.
+  int64 tx_bytes_cumulative = 18;
 }
 
 enum NetworkType {

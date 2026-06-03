@@ -1,13 +1,21 @@
 package com.dronesensor.app.health
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
+import android.os.StatFs
+import android.telephony.CellSignalStrength
+import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import com.dronesensor.app.BuildConfig
 import com.dronesensor.app.config.AppConfig
@@ -38,22 +46,79 @@ object DeviceHealthSnapshot {
             .setMicrophoneActive(microphoneActive)
             .setLastRebootTimestampMs(config.lastRebootMs)
             .setLastRebootReason(config.lastRebootReason)
+            // Extended SOH (zero = unset; the gateway/admin treat 0 as
+            // "not reported" and skip rendering).
+            .setBatteryTemperatureDeciC(battery.temperatureDeciC)
+            .setBatteryVoltageMv(battery.voltageMv)
+            .setBatteryHealth(battery.health)
+            .setCellularRssiDbm(cellularRssiDbm(context))
+            .setWifiRssiDbm(wifiRssiDbm(context))
+            .setFreeDiskBytes(freeDiskBytes())
+            .setTxBytesCumulative(txBytesCumulative(context))
             .build()
     }
 
-    private data class Battery(val percent: Int, val charging: Boolean)
+    private data class Battery(
+        val percent: Int,
+        val charging: Boolean,
+        val temperatureDeciC: Int,
+        val voltageMv: Int,
+        val health: Int,
+    )
 
     private fun batteryStatus(context: Context): Battery {
         val intent: Intent? = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        if (intent == null) return Battery(-1, false)
+        if (intent == null) return Battery(-1, false, 0, 0, 0)
         val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
         val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
         val percent = if (level >= 0 && scale > 0) (level * 100) / scale else -1
         val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                 status == BatteryManager.BATTERY_STATUS_FULL
-        return Battery(percent, charging)
+        // EXTRA_TEMPERATURE is tenths of a degree C; EXTRA_VOLTAGE is mV.
+        // Default 0 reads as "unset" downstream.
+        val tempDeciC = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+        val voltageMv = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)
+        val health = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, 0)
+        return Battery(percent, charging, tempDeciC, voltageMv, health)
     }
+
+    private fun cellularRssiDbm(context: Context): Int {
+        // Requires READ_PHONE_STATE on API < 30, accessible silently for
+        // Device Owner apps via the system; return 0 (unset) if denied.
+        if (ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return 0
+        val tm = ContextCompat.getSystemService(context, TelephonyManager::class.java) ?: return 0
+        return runCatching {
+            val ss = tm.signalStrength ?: return 0
+            // Prefer per-network strength; fall back to the legacy
+            // getLevel()/getDbm() if the OS doesn't surface a CellSignalStrength.
+            val first = ss.cellSignalStrengths.firstOrNull { it.dbm < 0 } as CellSignalStrength?
+            first?.dbm ?: 0
+        }.getOrElse { 0 }
+    }
+
+    private fun wifiRssiDbm(context: Context): Int {
+        return runCatching {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return 0
+            val info = wm.connectionInfo ?: return 0
+            val rssi = info.rssi
+            if (rssi < 0) rssi else 0  // unconnected returns INVALID_RSSI=-127 or 0
+        }.getOrElse { 0 }
+    }
+
+    private fun freeDiskBytes(): Long = runCatching {
+        StatFs(Environment.getDataDirectory().path).availableBytes
+    }.getOrElse { 0L }
+
+    private fun txBytesCumulative(context: Context): Long = runCatching {
+        val uid = context.applicationInfo.uid
+        val bytes = TrafficStats.getUidTxBytes(uid)
+        if (bytes == TrafficStats.UNSUPPORTED.toLong()) 0L else bytes
+    }.getOrElse { 0L }
 
     private fun networkType(context: Context): NetworkType {
         val cm = ContextCompat.getSystemService(context, ConnectivityManager::class.java)

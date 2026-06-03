@@ -68,6 +68,8 @@
                     <th>Freshness</th>
                     <th>Battery</th>
                     <th>Network</th>
+                    <th>Signal</th>
+                    <th>Software</th>
                     <th>Latest location</th>
                 </tr>
             </thead>
@@ -131,8 +133,24 @@
                             </span>
                         {% endif %}
                     </td>
-                    <td>{{ l.battery_percent }}%</td>
+                    {# Battery: percent · temperature · voltage (when phone
+                       reported them). Yellow warn when battery > 45°C. #}
+                    {% set _t_decic = l.battery_temperature_deci_c %}
+                    {% set _t_c = (_t_decic / 10.0) if _t_decic else 0 %}
+                    {% set _v = (l.battery_voltage_mv / 1000.0) if l.battery_voltage_mv else 0 %}
+                    <td title="{% if l.battery_health %}health={{ l.battery_health }}{% endif %}{% if l.tx_bytes_cumulative %} · uploaded {{ (l.tx_bytes_cumulative / 1048576) | round(1) }} MB{% endif %}{% if l.free_disk_bytes %} · free {{ (l.free_disk_bytes / 1073741824) | round(1) }} GB{% endif %}">
+                        {{ l.battery_percent }}%{% if _t_decic %} · <span{% if _t_c >= 45 %} class="warn"{% endif %}>{{ "%.1f" | format(_t_c) }}°C</span>{% endif %}{% if _v %} · {{ "%.2f" | format(_v) }}V{% endif %}
+                    </td>
                     <td>{{ l.network_type }}</td>
+                    {# Signal: prefer cellular RSSI when on a cellular link,
+                       otherwise wifi RSSI. Yellow warn below -110 dBm. #}
+                    {% set _rssi = l.cellular_rssi_dbm if 'cell' in (l.network_type or '')|lower else l.wifi_rssi_dbm %}
+                    <td>
+                        {% if _rssi %}
+                            <span{% if _rssi < -110 %} class="warn"{% endif %}>{{ _rssi }} dBm</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>{% if l.app_version %}<code>{{ l.app_version }}</code>{% else %}—{% endif %}</td>
                     <td>
                         {% if r and r.location_lat is not none %}
                             {{ "%.5f" | format(r.location_lat) }}, {{ "%.5f" | format(r.location_lon) }}

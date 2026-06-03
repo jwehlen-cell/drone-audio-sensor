@@ -202,6 +202,13 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
             battery_percent=handshake.health.battery_percent,
             thermal_state=THERMAL_NAMES.get(handshake.health.thermal_state, "unspecified"),
             site_label=handshake.assigned_site_label,
+            battery_temperature_deci_c=handshake.health.battery_temperature_deci_c,
+            battery_voltage_mv=handshake.health.battery_voltage_mv,
+            battery_health=handshake.health.battery_health,
+            cellular_rssi_dbm=handshake.health.cellular_rssi_dbm,
+            wifi_rssi_dbm=handshake.health.wifi_rssi_dbm,
+            free_disk_bytes=handshake.health.free_disk_bytes,
+            tx_bytes_cumulative=handshake.health.tx_bytes_cumulative,
         )
         await self._state.init_session(initial_state)
 
@@ -296,6 +303,13 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
                         network_type=NETWORK_NAMES.get(h.network_type, "unspecified"),
                         battery_percent=h.battery_percent,
                         thermal_state=THERMAL_NAMES.get(h.thermal_state, "unspecified"),
+                        battery_temperature_deci_c=h.battery_temperature_deci_c,
+                        battery_voltage_mv=h.battery_voltage_mv,
+                        battery_health=h.battery_health,
+                        cellular_rssi_dbm=h.cellular_rssi_dbm,
+                        wifi_rssi_dbm=h.wifi_rssi_dbm,
+                        free_disk_bytes=h.free_disk_bytes,
+                        tx_bytes_cumulative=h.tx_bytes_cumulative,
                     )
                 elif kind == "location_update":
                     loc = message.location_update.location
