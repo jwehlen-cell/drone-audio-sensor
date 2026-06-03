@@ -19,8 +19,8 @@ android {
         // release. The on-device screen renders "Gen 2.${VERSION_CODE}"
         // so the installer can read which build is on the phone at a
         // glance.
-        versionCode = 3
-        versionName = "Gen 2.3"
+        versionCode = 4
+        versionName = "Gen 2.4"
 
         // Provisioning defaults. Today these are baked at build time via
         // gradle properties: ./gradlew installDebug -PgrpcHost=... -Psite=...

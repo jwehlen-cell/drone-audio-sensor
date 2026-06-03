@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.IntentFilter
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
 
@@ -61,6 +62,21 @@ class KioskController(private val context: Context) {
                 mgr.setKeyguardDisabled(admin, true)
             }.onFailure { Log.w(TAG, "setKeyguardDisabled failed: ${it.message}") }
         }
+
+        // Force the global "stay awake while plugged in" setting to off
+        // so the OS applies its normal screen timeout regardless of
+        // charging state — Patrick phones are likely on solar-fed
+        // battery packs and we don't want the developer-options Stay
+        // Awake toggle (or an OEM default) to keep the OLED lit. Value
+        // is a bitmask of BatteryManager.BATTERY_PLUGGED_*; "0" disables
+        // all of them.
+        runCatching {
+            mgr.setGlobalSetting(
+                admin,
+                Settings.Global.STAY_ON_WHILE_PLUGGED_IN,
+                "0",
+            )
+        }.onFailure { Log.w(TAG, "setGlobalSetting STAY_ON_WHILE_PLUGGED_IN failed: ${it.message}") }
     }
 
     fun enterLockTask(activity: Activity) {
