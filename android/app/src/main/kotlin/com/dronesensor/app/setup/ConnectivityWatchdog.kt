@@ -45,25 +45,29 @@ class ConnectivityWatchdog(
         ContextCompat.getSystemService(context, DevicePolicyManager::class.java)
 
     private var job: Job? = null
-    private var observerJob: Job? = null
     @Volatile private var lastAuthenticatedAtMs: Long = System.currentTimeMillis()
 
     fun start() {
         if (job?.isActive == true) return
         lastAuthenticatedAtMs = System.currentTimeMillis()
 
-        observerJob = scope.launch {
-            phaseFlow.collect { phase ->
-                if (phase == ConnectionPhase.CLOUD_AUTHENTICATED) {
-                    lastAuthenticatedAtMs = System.currentTimeMillis()
-                }
-            }
-        }
-
         job = scope.launch {
             while (isActive) {
                 delay(checkIntervalMs)
+
+                // Reset the watchdog timer as long as the phase is
+                // currently CLOUD_AUTHENTICATED. The previous version
+                // listened for transitions via collect(), but StateFlow
+                // only emits on value change — once the phase stayed in
+                // CLOUD_AUTHENTICATED, lastAuthenticatedAtMs never
+                // updated and the watchdog fired after
+                // connectivityRebootTimeoutMs of healthy streaming.
                 val nowMs = System.currentTimeMillis()
+                if (phaseFlow.value == ConnectionPhase.CLOUD_AUTHENTICATED) {
+                    lastAuthenticatedAtMs = nowMs
+                    continue
+                }
+
                 val sinceAuthMs = nowMs - lastAuthenticatedAtMs
                 if (sinceAuthMs < config.connectivityRebootTimeoutMs) continue
 
@@ -84,9 +88,7 @@ class ConnectivityWatchdog(
 
     fun stop() {
         job?.cancel()
-        observerJob?.cancel()
         job = null
-        observerJob = null
     }
 
     private fun triggerReboot(sinceAuthMs: Long) {
