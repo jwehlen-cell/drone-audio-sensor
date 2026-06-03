@@ -20,11 +20,14 @@
         {% if available_sites %}
         <span class="site-picker">
             Site:
+            {# Carry the current ?refresh= setting in each chip href so
+               switching site doesn't reset the refresh interval. #}
+            {% set refresh_arg = "&refresh=" ~ refresh_seconds if refresh_seconds is defined and refresh_seconds is not none and refresh_seconds != 10 else "" %}
             {% for s in available_sites %}
                 {% if s == current_site %}
                     <span class="chip chip-active">{{ s }}</span>
                 {% else %}
-                    <a class="chip" href="?site={{ s }}">{{ s }}</a>
+                    <a class="chip" href="?site={{ s }}{{ refresh_arg }}">{{ s }}</a>
                 {% endif %}
             {% endfor %}
         </span>

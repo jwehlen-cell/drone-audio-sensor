@@ -19,15 +19,19 @@
 <div class="refresh-bar muted">
     Rendered {{ rendered_at_ms | utc_ms }} UTC
     · refresh:
+    {# Preserve the current site selection in every chip href so
+       changing refresh interval doesn't drop the operator back to the
+       alphabetically-first site. #}
+    {% set site_arg = "&site=" ~ current_site if current_site else "" %}
     {% for opt in refresh_options %}
       {% if refresh_seconds == opt %}
         <span class="chip chip-active">{{ opt }}s</span>
       {% else %}
-        <a class="chip" href="?refresh={{ opt }}">{{ opt }}s</a>
+        <a class="chip" href="?refresh={{ opt }}{{ site_arg }}">{{ opt }}s</a>
       {% endif %}
     {% endfor %}
     {% if refresh_seconds and refresh_seconds > 0 %}
-      <a class="chip" href="?refresh=off">off</a>
+      <a class="chip" href="?refresh=off{{ site_arg }}">off</a>
     {% else %}
       <span class="chip chip-active">off</span>
     {% endif %}
