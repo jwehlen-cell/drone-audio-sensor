@@ -52,9 +52,12 @@ INSTALL_DIR=/opt/drone-audio-sensor
 if [ ! -d "$INSTALL_DIR/.git" ]; then
     rm -rf "$INSTALL_DIR"
     git clone --depth=1 "$REPO_URL" "$INSTALL_DIR"
+    chown -R drone-sensor-dev-sim:drone-sensor-dev-sim "$INSTALL_DIR"
 else
-    git -C "$INSTALL_DIR" fetch --depth=1 origin main
-    git -C "$INSTALL_DIR" reset --hard origin/main
+    # Git refuses to operate as root on a working tree owned by another
+    # user ("dubious ownership"); run git as the owner instead.
+    sudo -u drone-sensor-dev-sim git -C "$INSTALL_DIR" fetch --depth=1 origin main
+    sudo -u drone-sensor-dev-sim git -C "$INSTALL_DIR" reset --hard origin/main
 fi
 
 # Audio fixtures for the simulator's real-WAV streaming mode. The
