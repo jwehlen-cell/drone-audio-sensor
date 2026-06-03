@@ -111,8 +111,9 @@
                            on its Firestore doc; falls through to "—"
                            when the doc has no frame_duration_ms yet. #}
                         {% set _fd = r.frame_duration_ms if r else none %}
+                        {% set _cd = (r.audio_codec if r else '') or 'pcm16' %}
                         {% if _fd %}
-                            <td><code>{{ (_fd / 1000.0) | round(0, 'floor') | int }}s</code></td>
+                            <td><code>{{ (_fd / 1000.0) | round(0, 'floor') | int }}s/{{ _cd }}</code></td>
                         {% else %}
                             <td>—</td>
                         {% endif %}

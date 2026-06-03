@@ -49,6 +49,12 @@ class DeviceRow:
     # (e.g. real Android phones that were provisioned with just
     # "Patrick" as the site label).
     frame_duration_ms: int | None
+    # Audio codec the gateway last observed on this device's frames
+    # (e.g. "pcm16", "flac", "wav"). Defaults to "pcm16" — the proto's
+    # default for raw frames — so phones whose handshake landed before
+    # the gateway started persisting this field still render a
+    # sensible Type.
+    audio_codec: str
 
 
 # Map raw subtype tokens to ``<maker> <model>`` display strings. Kept in
@@ -258,6 +264,7 @@ def _to_device_row(device_id: str, data: dict[str, Any]) -> DeviceRow:
         location_accuracy_m=_float(data.get("location_accuracy_m")),
         location_timestamp_ms=_int(data.get("location_timestamp_ms")),
         frame_duration_ms=_int(data.get("frame_duration_ms")),
+        audio_codec=str(data.get("audio_codec") or "pcm16"),
     )
 
 

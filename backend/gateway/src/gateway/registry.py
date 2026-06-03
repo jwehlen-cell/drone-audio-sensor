@@ -130,6 +130,17 @@ class DeviceRegistry:
             merge=True,
         )
 
+    async def update_audio_codec(self, device_id: str, codec: str) -> None:
+        """Persist the codec the device is currently streaming so the
+        admin's Type column can render "{N}s/{codec}" instead of bare
+        "{N}s". The gateway calls this once per session after the first
+        frame; ``codec=""`` is normalized to "pcm16" since the proto
+        spec defines that as the default for raw frames."""
+        await self._collection.document(device_id).set(
+            {"audio_codec": codec or "pcm16"},
+            merge=True,
+        )
+
     async def lookup(self, device_id: str) -> DeviceLookup | None:
         """Fetch the auth-relevant subset of a device document."""
         snap = await self._collection.document(device_id).get()

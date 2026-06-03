@@ -44,7 +44,7 @@
                 {% else %}
                     <td>{{ _label or '—' }}</td>
                     {% if d.frame_duration_ms %}
-                        <td><code>{{ (d.frame_duration_ms / 1000.0) | round(0, 'floor') | int }}s</code></td>
+                        <td><code>{{ (d.frame_duration_ms / 1000.0) | round(0, 'floor') | int }}s/{{ d.audio_codec or 'pcm16' }}</code></td>
                     {% else %}
                         <td>—</td>
                     {% endif %}

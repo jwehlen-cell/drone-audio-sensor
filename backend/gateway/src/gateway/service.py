@@ -241,6 +241,7 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
         frames_received = 0
         last_acked_seq = -1
         disconnect_reason = "client_closed"
+        codec_persisted: str | None = None
         try:
             async for message in request_iterator:
                 kind = message.WhichOneof("payload")
@@ -252,6 +253,16 @@ class DroneAudioStreamServicer(pb_grpc.DroneAudioStreamServicer):
                         sequence=int(frame.sequence_number),
                         frames_received=frames_received,
                     )
+                    # Persist the audio codec once per session (or on
+                    # change). The admin's Type column reads this so
+                    # phones streaming flac vs raw pcm16 are visually
+                    # distinguished without inspecting frames.
+                    _frame_codec = frame.codec or "pcm16"
+                    if codec_persisted != _frame_codec:
+                        await self._registry.update_audio_codec(
+                            device_id, _frame_codec
+                        )
+                        codec_persisted = _frame_codec
                     # In `lost` mode we still touch state so dashboards see
                     # the device as connected, but we don't forward audio
                     # to the inference pipeline.
