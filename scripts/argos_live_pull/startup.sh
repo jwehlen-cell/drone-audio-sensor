@@ -95,4 +95,10 @@ chown drone-sensor-dev-argos-bridge:drone-sensor-dev-argos-bridge \
   /var/log/argos-live-pull.log
 
 systemctl daemon-reload
-systemctl enable --now drone-sensor-dev-argos-live-pull.service
+systemctl enable drone-sensor-dev-argos-live-pull.service
+# Restart (not just `enable --now`) so the running process picks up
+# any subscriber.py / unit-file changes from the git pull above.
+# `enable --now` is a no-op when the service is already running,
+# which means a new boot's auto-started service would otherwise keep
+# executing the previous boot's code.
+systemctl restart drone-sensor-dev-argos-live-pull.service
