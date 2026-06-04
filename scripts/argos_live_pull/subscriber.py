@@ -156,6 +156,55 @@ def device_id_for(sensor: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Sensor → (lat, lon) fallback
+# ---------------------------------------------------------------------------
+#
+# Argos clip sidecars don't carry sensor coordinates, so a plain
+# ``sidecar.get("location")`` returns None and the gateway-side
+# device doc gets ``current_location=(0,0)`` — Null Island. That
+# wipes the dashboard map pin and breaks the Shaw site chip's
+# spatial layout. Fall back to scripts/argos_bridge/stations.py,
+# the authoritative roster of public Argos station positions,
+# keyed on the ARGOS-SHAW-* prefixed id so we can look up directly
+# by device_id.
+
+def _build_sensor_location_map() -> dict[str, dict]:
+    """Map {device_id: {latitude, longitude}} built once at import
+    time from the bridge roster."""
+    import sys as _sys
+    from pathlib import Path as _Path
+    _bridge_dir = _Path(__file__).resolve().parent.parent / "argos_bridge"
+    if str(_bridge_dir) not in _sys.path:
+        _sys.path.insert(0, str(_bridge_dir))
+    try:
+        from stations import STATIONS  # type: ignore
+    except ImportError:
+        return {}
+    return {
+        st.station_id: {"latitude": st.latitude, "longitude": st.longitude}
+        for st in STATIONS
+    }
+
+
+_SENSOR_LOC_FALLBACK = _build_sensor_location_map()
+
+
+def sensor_location(device_id: str, sidecar: Optional[dict]) -> Optional[dict]:
+    """Sidecar wins when it has a real position; otherwise fall back
+    to the stations.py roster. Treats (0,0) as 'no position'
+    (Argos schema uses 0/0 as missing, not the literal point in the
+    Atlantic, so don't let it through)."""
+    if isinstance(sidecar, dict):
+        cand = sidecar.get("location")
+        if isinstance(cand, dict):
+            lat = float(cand.get("latitude", 0.0))
+            lon = float(cand.get("longitude", 0.0))
+            if (lat, lon) != (0.0, 0.0):
+                return cand
+    return _SENSOR_LOC_FALLBACK.get(device_id)
+
+
+# ---------------------------------------------------------------------------
 # SOH synthesis — argos sensors don't report battery/temp/RSSI, so we
 # render plausible values for the dashboard
 # ---------------------------------------------------------------------------
@@ -330,7 +379,7 @@ async def forward_one_clip(
         # Sidecar start_time is epoch seconds in the argos schema.
         capture_ts_ms = int(sidecar["start_time"] * 1000)
 
-    loc = sidecar.get("location") if isinstance(sidecar, dict) else None
+    loc = sensor_location(device_id, sidecar)
     handshake = _build_handshake(device_id, loc, sr, soh)
     frame = _build_audio_frame(device_id, payload, sr, capture_ts_ms, sequence)
 
