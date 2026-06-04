@@ -36,14 +36,20 @@ class Settings(BaseSettings):
     dense_classifier_path: str = "/app/models/drone_classifier_binary.keras"
     subtype_classifier_path: str = "/app/models/drone_classifier_subtype.keras"
     subtype_labels_path: str = "/app/models/drone_classifier_subtype.labels.json"
-    # "Angels Envy" is the QST + USAFA + night-negatives retrain
-    # (yamnet-drone-detector commit 3ede0de). Names persist across
-    # retrains as long as the dataset family + architecture are the
-    # same — bump the name only when a new training family takes over.
+    # "Angels Envy" is the QST + USAFA + night-negatives retrain, now also
+    # trained on 5,000 Kilo-verified false-positive HARD NEGATIVES harvested
+    # from 8 h of live Shaw audio (yamnet-drone-detector commit 9729a32). Names
+    # persist across retrains as long as the dataset family + architecture are
+    # the same — bump the name only when a new training family takes over.
     model_name: str = "Angels Envy"
-    model_version: str = "angels-envy-2026.06"
+    model_version: str = "angels-envy-2026.06-hardneg"
     score_buffer_size: int = 5
-    detection_threshold: float = 0.5
+    # Retuned 0.5 -> 0.70 for the hard-negative model (retune_threshold.py):
+    # the model scores confirmed drones ~1.0 (USAFA min 0.997) so detection
+    # survives 100% at 0.70, while held-out field confounders crater
+    # (median 0.014, p95 0.46) -> false-alarm rate on the deployment domain
+    # drops ~33x vs the old model at 0.5 (47% -> 1.4%).
+    detection_threshold: float = 0.70
     # Cadence-aware detection gate. Instead of "K of N frames above
     # threshold" (which silently misses anything from a station whose
     # cadence is wider than the typical flyby), we accumulate
