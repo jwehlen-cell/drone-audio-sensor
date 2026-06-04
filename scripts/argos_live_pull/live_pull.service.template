@@ -1,5 +1,5 @@
 [Unit]
-Description=Argos UAT live-pull subscriber (Pub/Sub -> argosuat gateway as SIM-SHAW-SH###)
+Description=Argos UAT live-pull subscriber (Pub/Sub -> argosuat gateway as ARGOS-SHAW-SH###)
 After=network-online.target
 Wants=network-online.target
 

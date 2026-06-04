@@ -72,7 +72,7 @@ def main() -> None:
         pem = pub_path.read_text()
         # site_label gets the descriptive sentence per-station from
         # stations.py; the admin's Site column renders it verbatim,
-        # making "SIMULATED – Shaw AFB / Sumter SC cluster ... SH011"
+        # making "ARGOS – Shaw AFB / Sumter SC cluster, sensor SH011"
         # the visible name on every row.
         label = st.description or args.site_label
         doc = {

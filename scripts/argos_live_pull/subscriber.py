@@ -8,8 +8,8 @@ handed to us by the Argos team. For every clip notification:
   1. Fetch the .wav and the matching .json sidecar from
      ``gs://aftac-argos-dataflow-unzipped`` (same SA).
   2. Resample 8 kHz → 16 kHz so YAMNet accepts it.
-  3. Forward to our argosuat gateway under the existing
-     ``SIM-SHAW-SH###`` device id for that station, with a
+  3. Forward to our argosuat gateway under the
+     ``ARGOS-SHAW-SH###`` device id for that station, with a
      synthesized DeviceHealth so the dashboard renders full
      battery/signal/temperature cells the same way real phones do.
 
@@ -144,13 +144,15 @@ def load_sa_key(secret_name: Optional[str], local_path: Optional[str]) -> str:
 
 def device_id_for(sensor: str) -> str:
     """Argos clip sidecars carry the raw sensor id (e.g. ``SH011``). We
-    stream it under our SIM-SHAW-SH### convention so it lines up with the
-    already-enrolled device docs and the Shaw site grouping."""
+    stream it under our ARGOS-SHAW-SH### convention so the upstream
+    provenance is obvious on the admin dashboard (and so the live
+    Argos sensors don't get visually mixed up with simulated phones,
+    which use the ``SIM-`` prefix)."""
     sensor = sensor.strip()
     if not sensor.startswith("SH"):
         # Should never happen for argos clips; defensive.
         sensor = f"SH{sensor}"
-    return f"SIM-SHAW-{sensor}"
+    return f"ARGOS-SHAW-{sensor}"
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +282,7 @@ def _build_handshake(
             device_model="argos-live",
             os_version="argos-live/1.0",
             assigned_site_label=(
-                f"SIMULATED – Shaw cluster (live argos pull), {device_id} "
+                f"ARGOS live pull – Shaw cluster, {device_id} "
                 f"({int(CLIP_SECONDS)}s/{CODEC})"
             ),
             location=loc,

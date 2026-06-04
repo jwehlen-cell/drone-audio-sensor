@@ -4,8 +4,9 @@ Subscribes to the prod Argos Pub/Sub notification topic, authenticates
 as the cross-project SA the Argos team minted for us
 (`argos-bridge@argos-487318`), pulls each `.wav` + `.json` sidecar as
 they land in `gs://aftac-argos-dataflow-unzipped`, and streams them
-into the argosuat gateway under our existing `SIM-SHAW-SH###` device
-ids. Synthesizes plausible SOH (battery, temp, voltage, cellular RSSI)
+into the argosuat gateway under our `ARGOS-SHAW-SH###` device ids
+(distinguishable from the simulated phone fleet, which uses the
+`SIM-` prefix). Synthesizes plausible SOH (battery, temp, voltage, cellular RSSI)
 per station so the admin dashboard renders full rows even though the
 real Argos sensors don't emit those fields.
 

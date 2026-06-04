@@ -320,7 +320,7 @@ class GcsClipSource:
 
     def list_latest(self, station_id: str, window_hours: int) -> list[ClipRef]:
         # GCS keys clips by the original Argos identifier (e.g. SH011),
-        # not by our SIM-SHAW-* prefixed simulator id. Translate before
+        # not by our ARGOS-SHAW-* prefixed station id. Translate before
         # listing.
         prefix = f"{self._prefix}/{short_id(station_id)}/"
         clips: list[ClipRef] = []
@@ -403,7 +403,7 @@ def _handshake_msg(
     station_id: str, loc: ResolvedLocation, sample_rate_hz: int
 ) -> pb.ClientStreamMessage:
     # Admin Site column gets the descriptive sentence from stations.py
-    # (e.g. "SIMULATED – Shaw AFB / Sumter SC cluster ... SH011 (33.969°N)")
+    # (e.g. "ARGOS – Shaw AFB / Sumter SC cluster, sensor SH011 (33.969°N)")
     # with the (cadence/codec) suffix that the Type column splits off.
     # Falls back to the device id when the station isn't in the roster.
     station = BY_ID.get(station_id)

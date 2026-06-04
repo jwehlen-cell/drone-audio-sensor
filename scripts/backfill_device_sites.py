@@ -26,7 +26,9 @@ def site_for(device_id: str) -> str | None:
     # Five-base layout for the 500-phone load test.
     if device_id.startswith("SIM-PATRICK-"):
         return "Patrick"
-    if device_id.startswith("SIM-SHAW-"):
+    if device_id.startswith("ARGOS-SHAW-") or device_id.startswith("SIM-SHAW-"):
+        # Live Argos pull (ARGOS-SHAW-*) and any legacy replay-bridge
+        # docs (SIM-SHAW-*) both bucket under the Shaw site chip.
         return "Shaw"
     if device_id.startswith("SIM-LANGLEY-"):
         return "Langley"

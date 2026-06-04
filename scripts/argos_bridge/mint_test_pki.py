@@ -195,7 +195,7 @@ def main() -> None:
     log.info("ca uploaded -> %s, %s", ca_cert_secret, ca_key_secret)
 
     # Secret + pubkey filenames key on the short Argos id (SH011), not
-    # the full SIM-SHAW- prefixed station id, so the PKI material is
+    # the full ARGOS-SHAW- prefixed station id, so the PKI material is
     # reused across naming changes. The CN/SAN in the issued cert still
     # uses the full id for unambiguous identification on the wire.
     from stations import short_id  # local import keeps the CLI import-light
