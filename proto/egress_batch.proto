@@ -1,0 +1,46 @@
+// Wire format for the egress-cost measurement path.
+//
+// The egress_publisher Cloud Run service subscribes to the prod
+// detections Pub/Sub topic, packs N detections into an EgressBatch,
+// gzip-compresses the serialized bytes, and POSTs them to an
+// external receiver. The local receiver decompresses + counts and
+// drops the payload -- the receiver only exists to measure how many
+// bytes GCP egressed.
+//
+// The schema is deliberately dense:
+//   * field tags <= 15 are 1 byte on the wire (we have 18 fields,
+//     so the last three are 2 bytes -- acceptable)
+//   * no nested messages; site + location are flattened to one
+//     level so the gzip dictionary sees flat repeating patterns
+//     across the batch
+//   * strings only where the value is genuinely a string (model
+//     name, subtype label); category is kept as a short string
+//     rather than an enum so the publisher stays decoupled from
+//     model.py
+syntax = "proto3";
+package drone.egress;
+
+message EgressBatch {
+  repeated Detection detections = 1;
+}
+
+message Detection {
+  string device_id            = 1;
+  string detection_id         = 2;
+  int64  first_frame_ts_ms    = 3;
+  int64  last_frame_ts_ms     = 4;
+  float  peak_score           = 5;
+  float  average_score        = 6;
+  float  threshold            = 7;
+  int32  frames_over_threshold = 8;
+  int32  window_frames        = 9;
+  string category             = 10;
+  string subtype_label        = 11;
+  float  subtype_confidence   = 12;
+  string site                 = 13;
+  double location_lat         = 14;
+  double location_lon         = 15;
+  int64  published_at_ms      = 16;
+  string model_name           = 17;
+  string model_version        = 18;
+}

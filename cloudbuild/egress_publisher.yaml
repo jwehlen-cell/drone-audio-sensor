@@ -1,0 +1,63 @@
+# Cloud Build config for the egress-cost publisher.
+substitutions:
+  _SERVICE: drone-sensor-dev-egress-publisher
+  _REGION:  us-west2
+  _REPO:    us-west2-docker.pkg.dev/argosuat/drone-sensor-images-dev
+  _TAG:     latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Generate the protobuf stub into the source tree so the docker
+  # COPY step picks it up. The other services do this at runtime on
+  # the VM; the egress publisher does it at build time so the
+  # container is self-contained.
+  - id: protoc
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install --quiet grpcio-tools 'protobuf>=4.25,<6.0.0'
+        python -m grpc_tools.protoc \
+          -Iproto \
+          --python_out=backend/egress_publisher/src \
+          proto/egress_batch.proto
+        ls -l backend/egress_publisher/src/egress_batch_pb2.py
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/egress_publisher/Dockerfile
+      - -t
+      - ${_REPO}/egress-publisher:${_TAG}
+      - -t
+      - ${_REPO}/egress-publisher:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/egress-publisher
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REPO}/egress-publisher:${_TAG}
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REPO}/egress-publisher:${_TAG}
+  - ${_REPO}/egress-publisher:latest
+
+timeout: 1200s

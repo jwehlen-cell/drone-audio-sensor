@@ -1,0 +1,4 @@
+google-cloud-pubsub>=2.21.0
+httpx[http2]>=0.27.0
+protobuf>=4.25,<6.0.0
+structlog>=24.1.0

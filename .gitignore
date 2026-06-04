@@ -68,3 +68,6 @@ data/sim_audio_fixtures/
 # stream-ready flyby clip. The built artifact (drone_flyby_test_16k_mono.wav
 # + ground_truth.json) is committed; the ~280 MB source pool is not.
 data/test_clips/DroneAudioDataset/
+
+# egress_publisher generates this in Cloud Build's protoc step.
+backend/egress_publisher/src/egress_batch_pb2.py
