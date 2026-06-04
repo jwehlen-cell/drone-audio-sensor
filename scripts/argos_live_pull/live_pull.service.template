@@ -1,0 +1,27 @@
+[Unit]
+Description=Argos UAT live-pull subscriber (Pub/Sub -> argosuat gateway as SIM-SHAW-SH###)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+User=drone-sensor-dev-argos-bridge
+Group=drone-sensor-dev-argos-bridge
+WorkingDirectory=@@INSTALL_DIR@@
+Environment=GOOGLE_CLOUD_PROJECT=@@GCP_PROJECT@@
+Environment=BRIDGE_GATEWAY_URL=@@GATEWAY_URL@@
+Environment=BRIDGE_GATEWAY_TLS=true
+ExecStart=@@VENV@@/bin/python @@INSTALL_DIR@@/scripts/argos_live_pull/subscriber.py
+StandardOutput=append:/var/log/argos-live-pull.log
+StandardError=append:/var/log/argos-live-pull.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
