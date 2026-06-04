@@ -122,10 +122,13 @@ TEST_CLIP_PATH_DEFAULT = _REPO_ROOT / "data/test_clips/drone_flyby_test_16k_mono
 GROUND_TRUTH_PATH_DEFAULT = _REPO_ROOT / "data/test_clips/ground_truth.json"
 
 
-# Multi-base fleet generator for the 500-phone load test. Each base
-# matches a SIM-{CALLSIGN}-### prefix in seed_test_bases.py — generate
-# the same lat/lon scatter with the same rng seed so the simulator
-# phones land where the Firestore device docs were seeded.
+# Multi-base fleet generator. Each base matches a SIM-{CALLSIGN}-###
+# prefix in seed_test_bases.py — same lat/lon, scatter radius, and
+# rng seed so the simulator phones land where the Firestore device
+# docs were seeded. Patrick + Shaw are listed so the harness can opt
+# into them for spot tests; the default 1,000-phone test passes the
+# ten remaining bases via --bases and skips Patrick (real PHONE-*
+# device) + Shaw (live ARGOS-* sensors).
 _LOAD_BASES: tuple[tuple[str, str, float, float], ...] = (
     # (site_key, callsign, center_lat, center_lon)
     ("Patrick",         "PATRICK",    28.235,   -80.6005),
@@ -135,6 +138,11 @@ _LOAD_BASES: tuple[tuple[str, str, float, float], ...] = (
     ("Nellis",          "NELLIS",     36.2356, -115.0344),
     ("Hickam",          "HICKAM",     21.3286, -157.9472),
     ("WrightPatterson", "WPAFB",      39.8138,  -84.0494),
+    ("Eielson",         "EIELSON",    64.6657, -147.0961),
+    ("Andersen",        "ANDERSEN",   13.5800,  144.9244),
+    ("Kadena",          "KADENA",     26.3556,  127.7676),
+    ("Ramstein",        "RAMSTEIN",   49.4369,    7.6003),
+    ("Buckley",         "BUCKLEY",    39.7167, -104.7517),
 )
 _LOAD_SCATTER_RADIUS_KM = 1.5
 _LOAD_SEED = 42  # matches seed_test_bases.py for placement consistency

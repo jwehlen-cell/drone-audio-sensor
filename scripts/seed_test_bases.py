@@ -44,9 +44,22 @@ class Base:
     radius_km: float = 1.5
 
 
-# Five bases for the 500-phone test. Patrick + Shaw match the user's
-# existing site groupings; the three additions span both coasts +
-# interior so the map renders something interesting at every zoom.
+# Bases for the simulated phone fleet.
+#
+# Patrick + Shaw match the user's real-world site groupings (Patrick
+# hosts real PHONE-PATRICK-* devices and Shaw hosts the ARGOS-SHAW-*
+# live-pull sensors); they are listed here so the seed/backfill
+# rules cover them, but they're excluded from default load-test
+# fleets to avoid stepping on the real traffic.
+#
+# Langley/Vandenberg/Nellis/Hickam/WrightPatterson were added for the
+# 500-phone test (Apr 2026, US east coast / west coast / interior /
+# Pacific / Midwest spread).
+#
+# Eielson/Andersen/Kadena/Ramstein/Buckley round out the 1,000-phone
+# test (Jun 2026): Alaska + two OCONUS Pacific + OCONUS EUCOM + a
+# Mountain West space base. Together the ten load-test bases cover
+# 8 time zones, both OCONUS theaters, and five continents/landmasses.
 BASES: tuple[Base, ...] = (
     Base("Patrick",        "PATRICK",   "Patrick SFB, FL (Cape Canaveral coast)",          28.235,    -80.6005),
     Base("Shaw",           "SHAW",      "Shaw AFB, SC (Sumter)",                            33.971,    -80.461),
@@ -55,6 +68,11 @@ BASES: tuple[Base, ...] = (
     Base("Nellis",         "NELLIS",    "Nellis AFB, NV (north of Las Vegas, desert)",      36.2356,   -115.0344),
     Base("Hickam",         "HICKAM",    "JB Pearl Harbor–Hickam, HI (Oahu, tropical Pacific)", 21.3286, -157.9472),
     Base("WrightPatterson","WPAFB",     "Wright-Patterson AFB, OH (Dayton, Midwest)",       39.8138,   -84.0494),
+    Base("Eielson",        "EIELSON",   "Eielson AFB, AK (Fairbanks, Arctic CONUS)",        64.6657,  -147.0961),
+    Base("Andersen",       "ANDERSEN",  "Andersen AFB, Guam (Yigo, strategic Pacific)",     13.5800,   144.9244),
+    Base("Kadena",         "KADENA",    "Kadena AB, Japan (Okinawa, PACAF)",                26.3556,   127.7676),
+    Base("Ramstein",       "RAMSTEIN",  "Ramstein AB, Germany (Kaiserslautern, EUCOM)",     49.4369,     7.6003),
+    Base("Buckley",        "BUCKLEY",   "Buckley SFB, CO (Aurora, Mountain West space)",    39.7167,  -104.7517),
 )
 
 
