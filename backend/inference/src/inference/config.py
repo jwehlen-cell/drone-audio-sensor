@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     pubsub_detections_topic: str = ""
     devices_collection: str = "devices"
     detections_collection: str = "detections"
-    detection_doc_ttl_seconds: int = 3600
+    detection_doc_ttl_seconds: int = 86400  # 24 h
     firestore_database: str = "(default)"
 
     model_handle: str = "https://tfhub.dev/google/yamnet/1"
