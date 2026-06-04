@@ -57,14 +57,12 @@ fi
 
 sudo -u drone-sensor-dev-argos-bridge python3 -m venv "${VENV}"
 sudo -u drone-sensor-dev-argos-bridge "${VENV}/bin/pip" install --quiet --upgrade pip
-# protobuf>=6.31.1 keeps the venv aligned with the gencode produced
-# by current grpcio-tools (5.x would crash with a runtime/gencode
-# version mismatch). The bridge doesn't depend on google-cloud-
-# firestore (which pins protobuf<6.0.0); the live-pull only uses
-# pubsub + storage + secret-manager.
+# requirements.txt already pulls in a protobuf version (via the
+# google-cloud-* deps) that the existing grpcio-tools is happy to
+# emit gencode for. Don't add an explicit protobuf pin here -- it
+# fights google-cloud-firestore's <6.0.0 constraint and aborts pip.
 sudo -u drone-sensor-dev-argos-bridge "${VENV}/bin/pip" install --quiet \
   -r "${INSTALL_DIR}/scripts/requirements.txt" \
-  'protobuf>=6.31.1' \
   google-cloud-pubsub \
   google-cloud-storage \
   google-cloud-secret-manager
