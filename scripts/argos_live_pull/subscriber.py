@@ -355,7 +355,15 @@ class LiveSubscriber:
         self._storage = storage.Client()
         self._bucket = self._storage.bucket(BUCKET)
         self._soh = SohSynth()
-        self._sem = asyncio.Semaphore(max_inflight)
+        # asyncio.Semaphore binds to the running event loop at
+        # construction time on Python 3.9. Creating it here (on the
+        # main thread, before run() spins up a new loop) would bind it
+        # to the default loop, and the first `async with self._sem`
+        # inside _handle would then fail "Future attached to a
+        # different loop". Defer creation to run() where the new loop
+        # is the running one.
+        self._max_inflight = max_inflight
+        self._sem: Optional[asyncio.Semaphore] = None
         # Per-station sequence counters so each device_id's frames count up.
         self._seq: dict[str, int] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -363,6 +371,8 @@ class LiveSubscriber:
 
     def run(self) -> None:
         self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._sem = asyncio.Semaphore(self._max_inflight)
         # Pub/Sub's StreamingPull is sync (threadpool callbacks); we
         # bridge to asyncio so the audio forwarders can use grpc.aio.
         streaming_pull = self._subscriber.subscribe(
