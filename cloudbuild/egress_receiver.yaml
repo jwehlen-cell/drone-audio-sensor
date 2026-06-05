@@ -64,7 +64,7 @@ steps:
           --image=${_REPO}/egress-receiver:${_TAG} \
           --region=${_REGION} \
           --use-http2 \
-          --allow-unauthenticated=false \
+          --no-allow-unauthenticated \
           --min-instances=0 \
           --max-instances=10 \
           --concurrency=80 \

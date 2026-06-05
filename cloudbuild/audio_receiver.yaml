@@ -60,7 +60,7 @@ steps:
           --image=${_REPO}/audio-receiver:${_TAG} \
           --region=${_REGION} \
           --use-http2 \
-          --allow-unauthenticated=false \
+          --no-allow-unauthenticated \
           --memory=1Gi \
           --cpu=2 \
           --min-instances=0 \
