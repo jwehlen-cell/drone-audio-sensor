@@ -73,17 +73,37 @@ class DetectionPublisher:
             # Pub/Sub channel below.
             "chronic_suppressed": event.chronic_suppressed,
             "chronic_recent_count": event.chronic_recent_count,
+            # Cause label, "" for live detections. Lets the admin / analyst
+            # filter the detections collection on a single field instead of
+            # juggling chronic_suppressed bool + heuristics.
+            "suppression_reason": event.suppression_reason,
+            # Count of frames in the current buffer that the AudioSet veto
+            # removed from the gate accumulator. >0 even on live detections
+            # gives the analyst quantitative "the veto fired N times on
+            # frames that would otherwise have counted".
+            "vetoed_frames": event.vetoed_frames,
         }
         payload = json.dumps(message).encode("utf-8")
 
-        # Observable suppression: a chronically-firing sensor's alert is written
-        # to Firestore (audit / dashboard can filter on chronic_suppressed) but
-        # NOT published to the operator/TAK topic. Nothing is silently dropped.
-        if event.chronic_suppressed:
+        # Observable suppression: any non-empty suppression_reason means
+        # the event is FIRESTORE-ONLY -- write the doc for audit /
+        # dashboard, skip the Pub/Sub publish so TAK never sees it.
+        # Nothing is silently dropped; the dashboard can filter on
+        # `suppression_reason in ("chronic","cooldown","audioset_veto")`.
+        # Belt-and-suspenders: respect the legacy chronic_suppressed
+        # bool even when callers forget to set the new field, and
+        # backfill the label on the message so the doc is consistent.
+        if not event.suppression_reason and event.chronic_suppressed:
+            event.suppression_reason = "chronic"
+            message["suppression_reason"] = "chronic"
+        if event.suppression_reason:
             log.info(
-                "detection_chronic_suppressed",
+                "detection_suppressed",
                 detection_id=event.detection_id,
                 device_id=event.device_id,
+                suppression_reason=event.suppression_reason,
+                peak_score=event.peak_score,
+                vetoed_frames=event.vetoed_frames,
                 recent_fires=event.chronic_recent_count,
             )
             try:

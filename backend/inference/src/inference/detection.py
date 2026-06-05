@@ -67,6 +67,30 @@ class DetectionEvent:
     # Firestore for audit but NOT published to the operator/TAK channel.
     chronic_suppressed: bool = False
     chronic_recent_count: int = 0
+    # Suppression-attempt label. "" = real detection (TAK + dashboard).
+    # Non-empty = the event represents a *would-have-fired* detection
+    # killed by a specific suppression mechanism; Firestore-only, never
+    # published to TAK. The publisher uses this field to route the
+    # message AND records it on the Firestore doc so the dashboard /
+    # analyst can filter / group by suppression cause.
+    #
+    # Vocab:
+    #   ""              normal detection (operator alert + audit)
+    #   "chronic"       this sensor is firing chronically; alert
+    #                   withheld but audited
+    #   "cooldown"      gate triggered but the per-device suppression
+    #                   window is open from a recent fire
+    #   "audioset_veto" gate would have triggered but enough of the
+    #                   over-threshold frames were tagged as a
+    #                   confounder (frog/insect/etc.) to drop
+    #                   seconds_over below min_seconds_over_threshold
+    suppression_reason: str = ""
+    # Number of frames in the current buffer that the AudioSet veto
+    # removed from the gate accumulator. 0 = no frames vetoed.
+    # Exposed on every detection event (real or suppressed) so an
+    # analyst can quantify how often the veto is firing without
+    # comparing with/without runs.
+    vetoed_frames: int = 0
 
 
 class DetectionState:
@@ -170,36 +194,80 @@ class DetectionState:
         await self._client.aclose()
 
 
-def evaluate(buffer: list[dict]) -> tuple[bool, float, float, int]:
-    """Return (should_trigger, avg_score, peak_score, frames_over_threshold).
+@dataclass
+class EvaluateResult:
+    """Result of evaluate(). Carries everything the worker needs to
+    decide whether to fire a real detection, fire a suppressed-
+    attempt (e.g. veto-killed), or do nothing."""
+    should_trigger: bool
+    avg_score: float
+    peak_score: float
+    frames_over_threshold: int
+    seconds_over: float
+    # Frames in the buffer that the AudioSet veto removed from the
+    # gate accumulator (i.e. over-threshold drone score but also a
+    # high confounder score). 0 = no veto activity.
+    vetoed_frames: int
+    # True iff the veto actually CHANGED the trigger outcome: with-
+    # veto would not have fired, but without-veto would have. Lets
+    # the worker write a suppressed-attempt doc only when the veto
+    # is the reason the trigger didn't fire, not on every quiet
+    # tick.
+    veto_blocked_trigger: bool
 
-    Trigger condition is seconds-of-audio-above-threshold across the
+
+def evaluate(buffer: list[dict]) -> EvaluateResult:
+    """Trigger condition is seconds-of-audio-above-threshold across the
     window, not raw frame count, so a wide-cadence station whose
     single frame represents 30 s of audio can still fire on one
-    positive detection. ``frames_over_threshold`` in the return tuple
-    is retained for the downstream detection event so existing
-    Firestore/Pub/Sub consumers see the same field semantics.
+    positive detection. ``frames_over_threshold`` is retained for
+    the downstream detection event so existing Firestore/Pub/Sub
+    consumers see the same field semantics.
     """
     if not buffer:
-        return False, 0.0, 0.0, 0
+        return EvaluateResult(False, 0.0, 0.0, 0, 0.0, 0, False)
     scores = [float(b["drone"]) for b in buffer]
     over_frames = sum(1 for s in scores if s >= settings.detection_threshold)
     avg = sum(scores) / len(scores)
     peak = max(scores)
 
+    def _vetoed(b: dict) -> bool:
+        if float(b["drone"]) < settings.detection_threshold:
+            return False
+        if not settings.confounder_veto_enabled:
+            return False
+        return float(b.get("conf") or 0.0) >= settings.confounder_veto_threshold
+
     def _counts(b: dict) -> bool:
         """A frame contributes to the gate iff it's over threshold AND not
         vetoed by a dominant AudioSet confounder (frog/insect/vehicle/train)."""
-        if float(b["drone"]) < settings.detection_threshold:
-            return False
-        if (settings.confounder_veto_enabled
-                and float(b.get("conf") or 0.0) >= settings.confounder_veto_threshold):
-            return False
-        return True
+        return (float(b["drone"]) >= settings.detection_threshold
+                and not _vetoed(b))
 
     seconds_over = sum(float(b.get("frame_s") or 0.0) for b in buffer if _counts(b))
+    # Hypothetical seconds_over if the veto were OFF -- lets us
+    # detect "veto changed the outcome".
+    seconds_over_no_veto = sum(
+        float(b.get("frame_s") or 0.0) for b in buffer
+        if float(b["drone"]) >= settings.detection_threshold
+    )
+    vetoed_frames = sum(1 for b in buffer if _vetoed(b))
+
     trigger = seconds_over >= settings.min_seconds_over_threshold
-    return trigger, avg, peak, over_frames
+    would_trigger_without_veto = (
+        seconds_over_no_veto >= settings.min_seconds_over_threshold
+    )
+    veto_blocked_trigger = (not trigger) and would_trigger_without_veto
+
+    return EvaluateResult(
+        should_trigger=trigger,
+        avg_score=avg,
+        peak_score=peak,
+        frames_over_threshold=over_frames,
+        seconds_over=seconds_over,
+        vetoed_frames=vetoed_frames,
+        veto_blocked_trigger=veto_blocked_trigger,
+    )
 
 
 def build_detection(
@@ -210,6 +278,7 @@ def build_detection(
     avg: float,
     peak: float,
     over: int,
+    vetoed_frames: int = 0,
 ) -> DetectionEvent:
     first = buffer[-1]
     last = buffer[0]
@@ -239,6 +308,7 @@ def build_detection(
         subtype_probs=score.subtype_probs,
         category=category,
         category_display=category_display,
+        vetoed_frames=vetoed_frames,
     )
 
 

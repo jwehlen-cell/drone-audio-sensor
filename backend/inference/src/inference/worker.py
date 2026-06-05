@@ -69,6 +69,9 @@ class InferenceWorker:
         self._frames_processed = 0
         self._detections_emitted = 0
         self._detections_chronic_muted = 0
+        # New suppression-attempt counters (post-veto refactor).
+        self._detections_veto_suppressed = 0
+        self._detections_cooldown_suppressed = 0
         # Watchdog state. ``_last_frame_at`` is reset to ``time.monotonic()``
         # when the worker becomes ready and every time a frame is
         # processed. The watchdog loop wakes periodically and exits
@@ -156,21 +159,69 @@ class InferenceWorker:
         self._frames_processed += 1
         self._last_frame_at = time.monotonic()
 
-        trigger, avg, peak, over = evaluate(buffer)
-        if not trigger:
+        ev = evaluate(buffer)
+
+        # Suppression-attempt observability: when the gate would have
+        # fired but a downstream mechanism killed it, still build a
+        # detection event, tag it with suppression_reason, and route it
+        # through the publisher (which writes audit-only to Firestore;
+        # never to TAK). Lets the dashboard show "what would have
+        # fired" and grouped-by-reason analysis without comparing
+        # with-and-without runs.
+
+        if not ev.should_trigger:
+            # The veto can be the reason the trigger didn't fire. If
+            # it changed the outcome (would-have-fired without veto,
+            # didn't with veto), audit it. Otherwise the buffer just
+            # had no signal -- no need to flood Firestore.
+            if ev.veto_blocked_trigger:
+                event = build_detection(
+                    frame=frame, buffer=buffer, score=score,
+                    avg=ev.avg_score, peak=ev.peak_score,
+                    over=ev.frames_over_threshold,
+                    vetoed_frames=ev.vetoed_frames,
+                )
+                event.suppression_reason = "audioset_veto"
+                await self._publisher.publish(event)
+                self._detections_veto_suppressed += 1
+                log.info(
+                    "detection_audioset_vetoed",
+                    device_id=frame.device_id,
+                    detection_id=event.detection_id,
+                    peak=ev.peak_score,
+                    vetoed_frames=ev.vetoed_frames,
+                )
             return
 
         if await self._detection_state.is_suppressed(frame.device_id):
-            log.debug("detection_suppressed", device_id=frame.device_id)
+            # Per-device cooldown is open from a recent fire. The
+            # would-be detection still gets audited so the analyst
+            # can see how often cooldown is hiding real drone activity.
+            event = build_detection(
+                frame=frame, buffer=buffer, score=score,
+                avg=ev.avg_score, peak=ev.peak_score,
+                over=ev.frames_over_threshold,
+                vetoed_frames=ev.vetoed_frames,
+            )
+            event.suppression_reason = "cooldown"
+            await self._publisher.publish(event)
+            self._detections_cooldown_suppressed += 1
+            log.info(
+                "detection_cooldown_suppressed",
+                device_id=frame.device_id,
+                detection_id=event.detection_id,
+                peak=ev.peak_score,
+            )
             return
 
         event = build_detection(
             frame=frame,
             buffer=buffer,
             score=score,
-            avg=avg,
-            peak=peak,
-            over=over,
+            avg=ev.avg_score,
+            peak=ev.peak_score,
+            over=ev.frames_over_threshold,
+            vetoed_frames=ev.vetoed_frames,
         )
         # Temporal gate (mechanism 1): a chronically-firing sensor is a
         # stationary nuisance source. Mute its OPERATOR alert (still audited in
@@ -180,6 +231,11 @@ class InferenceWorker:
         )
         event.chronic_suppressed = chronic
         event.chronic_recent_count = count
+        if chronic:
+            # Mirror the bool into the new label so dashboard queries
+            # can WHERE suppression_reason in (...) uniformly across
+            # all suppression types.
+            event.suppression_reason = "chronic"
         await self._detection_state.mark_suppressed(frame.device_id, event.detection_id)
         await self._publisher.publish(event)
         if chronic:
