@@ -92,6 +92,10 @@ def _row_to_view(doc_id: str, d: dict) -> dict:
     return {
         "test_run_tag": doc_id,
         "receiver_type": d.get("receiver_type", ""),
+        # Free-form description of the test run (cadence, fleet size,
+        # what's being measured). Written to the doc out-of-band at
+        # test start, NOT by the receiver -- so missing for older runs.
+        "reason": d.get("reason", ""),
         "status": status,
         "started": _utc_iso(started_dt),
         "last_updated": _utc_iso(last_dt),
@@ -174,6 +178,7 @@ TABLE_HEADER = """
 <thead>
 <tr>
   <th>Test run</th>
+  <th>Reason</th>
   <th>Type</th>
   <th>Status</th>
   <th>Started</th>
@@ -206,9 +211,11 @@ def _row_html(r: dict) -> str:
         if r[k] > 0:
             codecs.append(f"{c}:{r[k]}")
     codecs_str = " ".join(codecs) or "—"
+    reason_cell = (r.get("reason") or "").replace("<", "&lt;")
     return (
         f'<tr class="{css_class}">'
         f'<td class="tag">{r["test_run_tag"]}</td>'
+        f'<td>{reason_cell}</td>'
         f'<td class="muted">{r["receiver_type"]}</td>'
         f'<td><span class="status {status_class}">{status}</span></td>'
         f'<td class="muted">{r["started"]}</td>'
