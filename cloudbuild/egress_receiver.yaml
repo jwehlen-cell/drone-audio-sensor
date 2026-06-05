@@ -1,0 +1,77 @@
+# Cloud Build config for the cross-project egress receiver.
+#
+# Builds + pushes into drone-audio-sensor's Artifact Registry (NOT
+# argosuat -- this is the "destination" project for the egress test).
+# Deploy is gated behind --substitutions=_DEPLOY=true so a CI build
+# can validate the image without spinning the receiver up.
+substitutions:
+  _SERVICE:  egress-receiver
+  _REGION:   us-west2
+  _REPO:     us-west2-docker.pkg.dev/drone-audio-sensor/drone-sensor-images
+  _TAG:      latest
+  _DEPLOY:   "false"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Generate gRPC stubs (egress_batch_pb2 + egress_service_pb2/grpc)
+  # into the source tree so the docker COPY picks them up.
+  - id: protoc
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install --quiet grpcio-tools 'protobuf>=4.25,<6.0.0'
+        python -m grpc_tools.protoc \
+          -Iproto \
+          --python_out=backend/egress_receiver/src \
+          --grpc_python_out=backend/egress_receiver/src \
+          proto/egress_batch.proto proto/egress_service.proto
+        ls -l backend/egress_receiver/src/
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/egress_receiver/Dockerfile
+      - -t
+      - ${_REPO}/egress-receiver:${_TAG}
+      - -t
+      - ${_REPO}/egress-receiver:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/egress-receiver
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "_DEPLOY=${_DEPLOY}; skipping Cloud Run deploy."
+          exit 0
+        fi
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REPO}/egress-receiver:${_TAG} \
+          --region=${_REGION} \
+          --use-http2 \
+          --allow-unauthenticated=false \
+          --min-instances=0 \
+          --max-instances=10 \
+          --concurrency=80 \
+          --quiet
+
+images:
+  - ${_REPO}/egress-receiver:${_TAG}
+  - ${_REPO}/egress-receiver:latest
+
+timeout: 1200s

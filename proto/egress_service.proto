@@ -1,0 +1,69 @@
+// gRPC service definition for the cross-project egress path.
+//
+// The egress publisher in `argosuat` opens one bidirectional stream
+// per publisher instance to the receiver in `drone-audio-sensor`.
+// EgressBatch messages flow client -> server; the server returns
+// per-batch BatchAck so the publisher can advance its Pub/Sub ack
+// after the wire has accepted the data.
+//
+// Reuses the EgressBatch + Detection messages from egress_batch.proto
+// (same wire format we already pack), so the publisher's byte-stream
+// content is identical between the HTTP-POST and gRPC-stream
+// transports. Only the connection lifecycle differs.
+syntax = "proto3";
+
+package drone.egress;
+
+import "egress_batch.proto";
+
+service EgressReceiver {
+  // Bidi-stream: client sends a continuous flow of EgressBatch; server
+  // acks each batch as soon as the bytes are counted and dropped. The
+  // server never holds onto the payload itself -- it only keeps the
+  // counters for the active test run.
+  rpc StreamBatches (stream EgressBatch) returns (stream BatchAck);
+
+  // Pull the receiver's per-test-run accumulator. Returns the totals
+  // since the last ResetTestRun (or since process start if never reset).
+  rpc GetStats (StatsRequest) returns (Stats);
+
+  // Reset the accumulators and (optionally) tag a new test run. Useful
+  // at the start of each measurement window so old data is not mixed
+  // with new.
+  rpc ResetTestRun (ResetRequest) returns (Stats);
+}
+
+message BatchAck {
+  // Round-trip echo so the publisher can correlate acks to batches.
+  // Optional; the publisher may leave it unset and just count acks.
+  uint64 batch_seq = 1;
+  // Wire byte count the server saw (after gRPC unframing, before any
+  // gzip/decompression on the publisher side). Cross-checks the
+  // publisher's reported wire bytes.
+  uint64 server_received_bytes = 2;
+}
+
+message StatsRequest {}
+
+message ResetRequest {
+  // Free-form tag for the run that's about to start. Surfaces in
+  // logs + the returned Stats payload so multiple runs can be
+  // distinguished without redeploying.
+  string test_run_tag = 1;
+}
+
+message Stats {
+  // Identifier set by the most recent ResetTestRun call.
+  string test_run_tag = 1;
+  // Per-test-run accumulators -- the only thing the receiver keeps.
+  // Payload contents are dropped immediately.
+  uint64 batches_received = 2;
+  uint64 detections_received = 3;
+  uint64 wire_bytes_received = 4;
+  uint64 proto_bytes_received = 5;   // sum of EgressBatch.SerializeToString() lengths
+  uint64 errors = 6;
+  uint64 max_single_batch_bytes = 7;
+  // Wall-clock timestamps so the caller can compute rates.
+  int64 started_at_unix_ms = 8;
+  int64 last_batch_at_unix_ms = 9;
+}

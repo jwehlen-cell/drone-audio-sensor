@@ -23,8 +23,9 @@ steps:
         python -m grpc_tools.protoc \
           -Iproto \
           --python_out=backend/egress_publisher/src \
-          proto/egress_batch.proto
-        ls -l backend/egress_publisher/src/egress_batch_pb2.py
+          --grpc_python_out=backend/egress_publisher/src \
+          proto/egress_batch.proto proto/egress_service.proto
+        ls -l backend/egress_publisher/src/
 
   - id: build
     name: gcr.io/cloud-builders/docker
