@@ -48,6 +48,7 @@ import time
 from concurrent import futures
 
 import grpc
+from google.cloud import firestore  # type: ignore
 
 import drone_audio_pb2 as da_pb  # type: ignore
 import drone_audio_pb2_grpc as da_grpc  # type: ignore
@@ -66,6 +67,17 @@ _CODEC_TO_FIELD = {
     "wav": "frames_wav",
     "flac": "frames_flac",
 }
+
+# Firestore wiring: every receiver instance keeps an in-memory delta
+# accumulator + flushes it via atomic Increment() ops every
+# DELTA_FLUSH_SECONDS. This makes counters multi-instance safe (no
+# more lost data when Cloud Run scales out) AND persists them to the
+# test_status dashboard.
+FIRESTORE_COLLECTION = "test_runs"
+DELTA_FLUSH_SECONDS = 30
+RECEIVER_TYPE = "audio_egress"
+# A run is marked "complete" when no frames have arrived in this long.
+STALE_RUN_SECONDS = 300
 
 
 def _now_ms() -> int:
@@ -193,6 +205,177 @@ class _Stats:
             )
 
 
+class _FirestoreSink:
+    """Periodically flushes per-test-run counter deltas to Firestore
+    via atomic Increment(). Lets the dashboard show a consistent
+    cross-instance total even when Cloud Run scales out the receiver.
+
+    Each receiver instance:
+      - Accumulates deltas in-memory (cheap, no per-frame Firestore I/O)
+      - Flushes every DELTA_FLUSH_SECONDS to drone-audio-sensor's
+        test_runs/<test_run_tag> doc via FieldValue.increment
+      - Resets local deltas on flush
+      - On ResetTestRun: writes a fresh run doc with status="running"
+        AND marks any previously-running tag as "complete"
+    """
+
+    def __init__(self) -> None:
+        try:
+            self._db = firestore.Client()
+        except Exception as e:  # noqa: BLE001
+            log.warning("firestore_init_failed err=%s; running without persistence", e)
+            self._db = None
+        self._lock = threading.Lock()
+        # Local delta accumulator. Flushed + reset every cycle.
+        self._delta: dict[str, int] = {}
+        self._max_single = 0
+        self._test_run_tag = ""
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._db is None:
+            return
+        self._thread = threading.Thread(
+            target=self._flush_loop, daemon=True, name="firestore-flush",
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        # One last flush so end-of-test counters land.
+        if self._db is not None:
+            self._flush_once(final=True)
+
+    def reset_run(self, tag: str) -> None:
+        """Called from ResetTestRun. Marks any previously-running doc
+        as complete, then creates a fresh doc for this tag."""
+        if self._db is None:
+            self._test_run_tag = tag
+            return
+        # Flush whatever's left for the previous tag, then close it.
+        self._flush_once(final=True, finalize_tag=self._test_run_tag)
+        with self._lock:
+            self._delta.clear()
+            self._max_single = 0
+            self._test_run_tag = tag
+        try:
+            self._db.collection(FIRESTORE_COLLECTION).document(tag).set({
+                "test_run_tag": tag,
+                "receiver_type": RECEIVER_TYPE,
+                "status": "running",
+                "started_at": firestore.SERVER_TIMESTAMP,
+                "last_updated_at": firestore.SERVER_TIMESTAMP,
+                "ended_at": None,
+                "handshakes_received": 0,
+                "frames_received": 0,
+                "wire_bytes": 0,
+                "audio_payload_bytes": 0,
+                "pcm_equivalent_bytes": 0,
+                "frames_pcm16": 0,
+                "frames_wav": 0,
+                "frames_flac": 0,
+                "frames_unknown_codec": 0,
+                "max_single_frame_bytes": 0,
+                "stream_errors": 0,
+            })
+            log.info("firestore_run_created tag=%s", tag)
+        except Exception as e:  # noqa: BLE001
+            log.warning("firestore_run_create_failed tag=%s err=%s", tag, e)
+
+    def record_delta(self, **deltas: int) -> None:
+        """Bump local accumulators. Called from the gRPC servicer on
+        every frame/handshake/error."""
+        max_frame = deltas.pop("_max_single", 0)
+        with self._lock:
+            for k, v in deltas.items():
+                self._delta[k] = self._delta.get(k, 0) + v
+            if max_frame > self._max_single:
+                self._max_single = max_frame
+
+    def _flush_loop(self) -> None:
+        while not self._stop.is_set():
+            self._stop.wait(timeout=DELTA_FLUSH_SECONDS)
+            if self._stop.is_set():
+                break
+            self._flush_once()
+            self._sweep_stale()
+
+    def _flush_once(self, final: bool = False, finalize_tag: str = "") -> None:
+        if self._db is None:
+            return
+        with self._lock:
+            tag_to_flush = finalize_tag or self._test_run_tag
+            if not tag_to_flush:
+                return
+            deltas = dict(self._delta)
+            max_frame = self._max_single
+            self._delta.clear()
+            # Don't reset _max_single -- the doc-side update uses
+            # max(old, new) via a transaction so the local watermark
+            # being remembered across flushes is harmless.
+
+        if not deltas and max_frame == 0 and not (final and finalize_tag):
+            # Nothing to write this cycle.
+            return
+
+        try:
+            update: dict = {"last_updated_at": firestore.SERVER_TIMESTAMP}
+            for k, v in deltas.items():
+                if v:
+                    update[k] = firestore.Increment(v)
+            doc = self._db.collection(FIRESTORE_COLLECTION).document(tag_to_flush)
+            if max_frame:
+                # max() across instances: read-modify-write in a
+                # transaction. Cheap (one doc).
+                @firestore.transactional
+                def _bump_max(tx, ref):
+                    snap = ref.get(transaction=tx)
+                    cur = (snap.to_dict() or {}).get("max_single_frame_bytes", 0)
+                    if max_frame > cur:
+                        tx.update(ref, {"max_single_frame_bytes": max_frame})
+                _bump_max(self._db.transaction(), doc)
+            if final and finalize_tag:
+                update["status"] = "complete"
+                update["ended_at"] = firestore.SERVER_TIMESTAMP
+            if update:
+                doc.update(update)
+        except Exception as e:  # noqa: BLE001
+            log.warning("firestore_flush_failed tag=%s err=%s", tag_to_flush, e)
+
+    def _sweep_stale(self) -> None:
+        """Mark long-idle 'running' runs as 'complete'. Cheap query
+        scoped to this receiver_type so multiple receivers' docs
+        don't step on each other."""
+        if self._db is None:
+            return
+        try:
+            now = time.time()
+            stale_cutoff_ms = int((now - STALE_RUN_SECONDS) * 1000)
+            q = (
+                self._db.collection(FIRESTORE_COLLECTION)
+                .where("receiver_type", "==", RECEIVER_TYPE)
+                .where("status", "==", "running")
+                .limit(20)
+            )
+            for snap in q.stream():
+                d = snap.to_dict() or {}
+                last_updated = d.get("last_updated_at")
+                if last_updated is None:
+                    continue
+                last_ms = int(last_updated.timestamp() * 1000)
+                if last_ms < stale_cutoff_ms:
+                    snap.reference.update({
+                        "status": "complete",
+                        "ended_at": firestore.SERVER_TIMESTAMP,
+                    })
+                    log.info("firestore_run_auto_completed tag=%s", snap.id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("firestore_sweep_failed err=%s", e)
+
+
 # Atomic-ish stream id generator. We only need per-stream uniqueness
 # within a single receiver process; uint64 is plenty.
 _NEXT_STREAM_ID = 0
@@ -215,8 +398,9 @@ class DroneAudioStreamServicer(da_grpc.DroneAudioStreamServicer):
     referenced just long enough to read len(), then released.
     """
 
-    def __init__(self, stats: _Stats) -> None:
+    def __init__(self, stats: _Stats, sink: _FirestoreSink) -> None:
         self._stats = stats
+        self._sink = sink
 
     def StreamAudio(self, request_iterator, context):
         stream_id = _next_stream_id()
@@ -234,6 +418,10 @@ class DroneAudioStreamServicer(da_grpc.DroneAudioStreamServicer):
                         sample_rate_hz=hs.sample_rate_hz,
                         frame_duration_ms=hs.frame_duration_ms,
                     )
+                    self._sink.record_delta(
+                        handshakes_received=1, wire_bytes=wire_size,
+                        _max_single=wire_size,
+                    )
                 elif kind == "audio_frame":
                     af = msg.audio_frame
                     # len() forces the bytes object to exist; we don't
@@ -247,17 +435,34 @@ class DroneAudioStreamServicer(da_grpc.DroneAudioStreamServicer):
                         audio_bytes_len=audio_len,
                         codec=codec,
                     )
+                    codec_field = _CODEC_TO_FIELD.get(codec, "frames_unknown_codec")
+                    # PCM-equivalent: derive from the stream's cached
+                    # handshake context the same way record_frame does
+                    # for the in-memory stat. Look it up under the
+                    # stats lock to be safe.
+                    with self._stats.lock:
+                        pcm_per_frame = self._stats._per_stream_pcm_per_frame.get(stream_id, 0)
+                    self._sink.record_delta(
+                        frames_received=1,
+                        wire_bytes=wire_size,
+                        audio_payload_bytes=audio_len,
+                        pcm_equivalent_bytes=pcm_per_frame,
+                        **{codec_field: 1},
+                        _max_single=wire_size,
+                    )
                 else:
                     # Unknown oneof -- still count the wire bytes so
                     # nothing gets lost from the receiver's totals.
                     with self._stats.lock:
                         self._stats.wire_bytes += wire_size
+                    self._sink.record_delta(wire_bytes=wire_size)
 
                 # Minimal-cost ack so HTTP/2 flow control stays healthy
                 # and the simulator can use server-side window updates.
                 yield da_pb.ServerCommand()
         except grpc.RpcError as e:
             self._stats.record_stream_error()
+            self._sink.record_delta(stream_errors=1)
             log.warning("stream_error peer=%s stream_id=%d err=%s",
                         peer, stream_id, e)
         finally:
@@ -266,14 +471,17 @@ class DroneAudioStreamServicer(da_grpc.DroneAudioStreamServicer):
 
 
 class AudioEgressStatsServicer(stats_grpc.AudioEgressStatsServicer):
-    def __init__(self, stats: _Stats) -> None:
+    def __init__(self, stats: _Stats, sink: _FirestoreSink) -> None:
         self._stats = stats
+        self._sink = sink
 
     def GetStats(self, request, context):
         return self._stats.snapshot()
 
     def ResetTestRun(self, request, context):
-        self._stats.reset(request.test_run_tag or "")
+        tag = request.test_run_tag or ""
+        self._stats.reset(tag)
+        self._sink.reset_run(tag)
         return self._stats.snapshot()
 
 
@@ -295,11 +503,13 @@ def serve() -> int:
         ],
     )
     stats = _Stats()
+    sink = _FirestoreSink()
+    sink.start()
     da_grpc.add_DroneAudioStreamServicer_to_server(
-        DroneAudioStreamServicer(stats), server,
+        DroneAudioStreamServicer(stats, sink), server,
     )
     stats_grpc.add_AudioEgressStatsServicer_to_server(
-        AudioEgressStatsServicer(stats), server,
+        AudioEgressStatsServicer(stats, sink), server,
     )
     server.add_insecure_port(f"[::]:{port}")
     log.info(
@@ -330,6 +540,7 @@ def serve() -> int:
     threading.Thread(target=_report, daemon=True).start()
     stop.wait()
     server.stop(grace=10).wait()
+    sink.stop()
     final = stats.snapshot()
     log.info(
         "final tag=%s frames=%d wire=%d audio=%d pcm_eq=%d",

@@ -1,0 +1,55 @@
+# Cloud Build config for the egress-test status dashboard.
+substitutions:
+  _SERVICE:  test-status
+  _REGION:   us-west2
+  _REPO:     us-west2-docker.pkg.dev/drone-audio-sensor/drone-sensor-images
+  _TAG:      latest
+  _DEPLOY:   "false"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/test_status/Dockerfile
+      - -t
+      - ${_REPO}/test-status:${_TAG}
+      - -t
+      - ${_REPO}/test-status:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/test-status
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "_DEPLOY=${_DEPLOY}; skipping Cloud Run deploy."
+          exit 0
+        fi
+        # Dashboard is read-only on Firestore. Public to make
+        # browsing trivial -- the data is just byte counters.
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REPO}/test-status:${_TAG} \
+          --region=${_REGION} \
+          --allow-unauthenticated \
+          --min-instances=0 --max-instances=2 --concurrency=80 \
+          --quiet
+
+images:
+  - ${_REPO}/test-status:${_TAG}
+  - ${_REPO}/test-status:latest
+
+timeout: 600s
