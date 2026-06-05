@@ -28,3 +28,8 @@ google-cloud-secret-manager>=2.20
 # the per-clip GPS fallback when a clip's sidecar has no location.
 google-cloud-bigquery>=3.20
 PyJWT>=2.8
+# Cross-project ID token fetch for the optional audio-egress tap
+# (--audio-egress-target). Each simulated phone opens a second
+# gRPC stream to the receiver in drone-audio-sensor, authenticating
+# as the sim VM's compute SA via google.oauth2.id_token.
+google-auth>=2.30

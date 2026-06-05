@@ -30,6 +30,12 @@ LOAD_TEST_CADENCE_SECONDS=$(curl "${hdr[@]}" "$META/LOAD_TEST_CADENCE_SECONDS" 2
 LOAD_TEST_CODEC=$(curl "${hdr[@]}" "$META/LOAD_TEST_CODEC" 2>/dev/null || echo "flac")
 LOAD_TEST_CLIP_GCS=$(curl "${hdr[@]}" "$META/LOAD_TEST_CLIP_GCS" 2>/dev/null || echo "")
 LOAD_TEST_GROUND_TRUTH_GCS=$(curl "${hdr[@]}" "$META/LOAD_TEST_GROUND_TRUTH_GCS" 2>/dev/null || echo "")
+# Optional cross-project audio-egress tap. When set, each simulated
+# phone opens a SECOND gRPC stream to drone-audio-sensor's
+# audio_receiver. Test-only -- leave unset for the production load
+# test path.
+LOAD_TEST_AUDIO_EGRESS_TARGET=$(curl "${hdr[@]}" "$META/LOAD_TEST_AUDIO_EGRESS_TARGET" 2>/dev/null || echo "")
+LOAD_TEST_AUDIO_EGRESS_AUDIENCE=$(curl "${hdr[@]}" "$META/LOAD_TEST_AUDIO_EGRESS_AUDIENCE" 2>/dev/null || echo "")
 echo "LOAD_TEST_MODE=$LOAD_TEST_MODE"
 echo "LOAD_TEST_BASES=$LOAD_TEST_BASES"
 echo "LOAD_TEST_PHONES_PER_BASE=$LOAD_TEST_PHONES_PER_BASE"
@@ -37,6 +43,8 @@ echo "LOAD_TEST_CADENCE_SECONDS=$LOAD_TEST_CADENCE_SECONDS"
 echo "LOAD_TEST_CODEC=$LOAD_TEST_CODEC"
 echo "LOAD_TEST_CLIP_GCS=$LOAD_TEST_CLIP_GCS"
 echo "LOAD_TEST_GROUND_TRUTH_GCS=$LOAD_TEST_GROUND_TRUTH_GCS"
+echo "LOAD_TEST_AUDIO_EGRESS_TARGET=$LOAD_TEST_AUDIO_EGRESS_TARGET"
+echo "LOAD_TEST_AUDIO_EGRESS_AUDIENCE=$LOAD_TEST_AUDIO_EGRESS_AUDIENCE"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -117,6 +125,12 @@ if [ "$LOAD_TEST_MODE" = "true" ]; then
         EXTRA_ARGS="$EXTRA_ARGS --phones-per-base $LOAD_TEST_PHONES_PER_BASE"
         EXTRA_ARGS="$EXTRA_ARGS --cadence-seconds $LOAD_TEST_CADENCE_SECONDS"
         EXTRA_ARGS="$EXTRA_ARGS --codec $LOAD_TEST_CODEC"
+    fi
+    if [ -n "$LOAD_TEST_AUDIO_EGRESS_TARGET" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --audio-egress-target $LOAD_TEST_AUDIO_EGRESS_TARGET"
+        if [ -n "$LOAD_TEST_AUDIO_EGRESS_AUDIENCE" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --audio-egress-audience $LOAD_TEST_AUDIO_EGRESS_AUDIENCE"
+        fi
     fi
     echo "Load-test EXTRA_ARGS=$EXTRA_ARGS"
 fi

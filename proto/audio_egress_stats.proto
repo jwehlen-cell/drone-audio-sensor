@@ -1,0 +1,65 @@
+// Stats sidecar service for the cross-project audio egress receiver.
+//
+// The receiver in drone-audio-sensor implements both this service AND
+// the existing DroneAudioStream from drone_audio.proto (which it uses
+// to accept simulator frames, then drops everything). This service
+// exists so an operator can pull byte counts + reset the per-test-run
+// accumulators without redeploying.
+syntax = "proto3";
+
+package drone.audio_egress;
+
+service AudioEgressStats {
+  rpc GetStats     (StatsRequest)  returns (AudioStats);
+  rpc ResetTestRun (ResetRequest)  returns (AudioStats);
+}
+
+message StatsRequest {}
+
+message ResetRequest {
+  string test_run_tag = 1;
+}
+
+message AudioStats {
+  string test_run_tag = 1;
+
+  // Per-test-run accumulators. All counters are read-only after the
+  // receiver has incremented them; the receiver never keeps the
+  // audio bytes themselves once they've been counted.
+  uint64 handshakes_received    = 2;
+  uint64 frames_received        = 3;
+
+  // Wire bytes:  sum of ClientStreamMessage.ByteSize() across every
+  //              message the server unframed off the gRPC stream.
+  //              This is what GCP egress billing sees.
+  uint64 wire_bytes             = 4;
+
+  // Audio payload bytes:  sum of len(audio_frame.pcm16_mono) -- the
+  //                       codec-encoded audio carried inside each
+  //                       AudioFrame. With codec=flac this is the
+  //                       compressed audio; with codec=pcm16 this is
+  //                       raw samples.
+  uint64 audio_payload_bytes    = 5;
+
+  // PCM-equivalent bytes: what the same audio would have weighed
+  //                       uncompressed at 16-bit mono. Computed by
+  //                       the receiver from sample_rate_hz +
+  //                       frame_duration_ms in the handshake. Lets
+  //                       the operator compute the codec's
+  //                       compression ratio without re-decoding.
+  uint64 pcm_equivalent_bytes   = 6;
+
+  // Per-codec breakdown of frames_received, so a single test run can
+  // mix codecs and still attribute volume.
+  uint64 frames_pcm16           = 7;
+  uint64 frames_wav             = 8;
+  uint64 frames_flac            = 9;
+  uint64 frames_unknown_codec   = 10;
+
+  uint64 max_single_frame_bytes = 11;
+  uint64 stream_errors          = 12;
+
+  // Wall-clock bookends for rate computation.
+  int64  started_at_unix_ms     = 13;
+  int64  last_frame_at_unix_ms  = 14;
+}

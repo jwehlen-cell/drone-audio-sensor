@@ -406,6 +406,47 @@ def _open_channel(gateway_target: str, use_tls: bool):
     return grpc.insecure_channel(gateway_target)
 
 
+# Cache of audience -> (token, fetched_at). ID tokens last 1 h; refresh
+# at the ~50 min mark. Shared across all stations because every
+# simulated phone authenticates as the same VM SA against the same
+# audience (the audio-receiver in drone-audio-sensor).
+_ID_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+_ID_TOKEN_LOCK = threading.Lock()
+
+
+def _id_token_for_audience(audience: str) -> str:
+    """Fetch + cache a Google ID token for the given audience. Used by
+    the audio-egress tap to authenticate cross-project gRPC calls."""
+    with _ID_TOKEN_LOCK:
+        cached = _ID_TOKEN_CACHE.get(audience)
+        if cached and time.time() - cached[1] < 3000:
+            return cached[0]
+        try:
+            from google.auth.transport.requests import Request  # type: ignore
+            from google.oauth2 import id_token  # type: ignore
+            tok = id_token.fetch_id_token(Request(), audience)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(
+                f"audio-egress: failed to fetch ID token for {audience}: {e}"
+            ) from e
+        _ID_TOKEN_CACHE[audience] = (tok, time.time())
+        return tok
+
+
+def _open_audio_egress_channel(target: str, audience: str):
+    """Open a TLS gRPC channel to the audio-receiver in
+    drone-audio-sensor, with ID-token call credentials so each RPC
+    carries the right Authorization header for cross-project Cloud
+    Run invocation."""
+    import grpc  # type: ignore
+
+    token = _id_token_for_audience(audience)
+    channel_creds = grpc.ssl_channel_credentials()
+    call_creds = grpc.access_token_call_credentials(token)
+    composite = grpc.composite_channel_credentials(channel_creds, call_creds)
+    return grpc.secure_channel(target, composite)
+
+
 # Sentinel pushed into the queue to tell the request_iter generator to
 # finish (and the bidirectional stream to half-close cleanly).
 _END_OF_STREAM = object()
@@ -426,6 +467,8 @@ def persistent_stream_session(
     playback_phase_s: float,
     sequence_state: list[int],
     soh_heartbeat_s: float,
+    audio_egress_target: str = "",
+    audio_egress_audience: str = "",
 ) -> None:
     """Drive one long-lived bidirectional StreamAudio call.
 
@@ -467,15 +510,26 @@ def persistent_stream_session(
     encode_us_acc = 0
     last_handshake_at = time.monotonic()
 
+    # Optional audio-egress tap: a parallel gRPC stream to a receiver
+    # in drone-audio-sensor that drops every frame and only keeps byte
+    # counters. The gateway path is the production-shaped one; the
+    # tap is test-only and must not block the gateway producer if the
+    # cross-project leg gets wedged.
+    egress_send_q: Optional[queue.Queue] = None
+    egress_channel = None
+    egress_drainer = None
+    egress_enabled = bool(audio_egress_target)
+
     def _current_battery() -> int:
         drain = int((time.monotonic() - battery_started_at) / 60.0)
         return max(5, battery_initial - drain)
 
     # Seed the queue with the initial handshake BEFORE we hand the
     # generator to gRPC, so the gateway sees the handshake first.
-    send_q.put(_build_handshake_msg(
+    initial_handshake = _build_handshake_msg(
         config, clock.sr, _current_battery(), network_type_enum,
-    ))
+    )
+    send_q.put(initial_handshake)
 
     try:
         stub = pb_grpc.DroneAudioStreamStub(channel)
@@ -500,6 +554,54 @@ def persistent_stream_session(
         )
         drainer.start()
 
+        # Optional audio-egress tap: open a second gRPC stream to the
+        # receiver in drone-audio-sensor. Same proto service
+        # (DroneAudioStream), same client code path, just a different
+        # target. If the channel fails to open, log and skip -- we
+        # never let the egress leg break the gateway leg.
+        if egress_enabled:
+            try:
+                egress_channel = _open_audio_egress_channel(
+                    audio_egress_target, audio_egress_audience,
+                )
+                egress_send_q = queue.Queue(maxsize=4)
+
+                def _egress_request_iter():
+                    while True:
+                        item = egress_send_q.get()
+                        if item is _END_OF_STREAM:
+                            return
+                        yield item
+
+                egress_stub = pb_grpc.DroneAudioStreamStub(egress_channel)
+                egress_call = egress_stub.StreamAudio(
+                    _egress_request_iter(), timeout=None,
+                )
+
+                def _drain_egress():
+                    try:
+                        for _resp in egress_call:
+                            pass
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                egress_drainer = threading.Thread(
+                    target=_drain_egress,
+                    name=f"egress-drain-{config.device_id}",
+                    daemon=True,
+                )
+                egress_drainer.start()
+                # Mirror the initial handshake to the egress stream
+                # so its per-stream handshake bookkeeping matches the
+                # gateway's.
+                egress_send_q.put(initial_handshake)
+            except Exception:  # noqa: BLE001
+                # ID-token fetch or channel open failed; disable the
+                # tap for this session and let the gateway path keep
+                # working. The next reconnect will retry.
+                egress_enabled = False
+                egress_send_q = None
+
         cycle_start = time.monotonic()
         while not stop_event.is_set():
             sequence_state[0] += 1
@@ -516,15 +618,27 @@ def persistent_stream_session(
                 config, payload, clock.sr, sequence_state[0],
             )
 
-            # Backpressure: if the stream's wedged and the queue's
-            # full for longer than a cadence cycle, give up and let
-            # the outer loop reconnect.
+            # Backpressure (gateway leg): if the stream's wedged and
+            # the queue's full for longer than a cadence cycle, give
+            # up and let the outer loop reconnect.
             try:
                 send_q.put(frame_msg, timeout=float(config.cadence_s))
             except queue.Full:
                 with stats_lock:
                     stats.frames_failed += 1
                 break
+
+            # Audio-egress tap: try-put with zero timeout. We do NOT
+            # block the gateway producer on the egress leg -- if the
+            # cross-project receiver is slow / down, drop the egress
+            # frame and keep streaming to the gateway as normal. The
+            # receiver's stats will then under-count, which is the
+            # right tradeoff (production path stays clean).
+            if egress_send_q is not None:
+                try:
+                    egress_send_q.put_nowait(frame_msg)
+                except queue.Full:
+                    pass
 
             # Optimistic per-frame stats: counted as sent when the
             # frame leaves our process via the queue. The persistent
@@ -542,10 +656,16 @@ def persistent_stream_session(
                 time.monotonic() - last_handshake_at >= soh_heartbeat_s
             ):
                 try:
-                    send_q.put(_build_handshake_msg(
+                    hs_msg = _build_handshake_msg(
                         config, clock.sr,
                         _current_battery(), network_type_enum,
-                    ), timeout=1.0)
+                    )
+                    send_q.put(hs_msg, timeout=1.0)
+                    if egress_send_q is not None:
+                        try:
+                            egress_send_q.put_nowait(hs_msg)
+                        except queue.Full:
+                            pass
                     last_handshake_at = time.monotonic()
                 except queue.Full:
                     pass  # next cycle will retry
@@ -558,8 +678,13 @@ def persistent_stream_session(
 
         # Clean shutdown: half-close so gRPC flushes anything queued.
         send_q.put(_END_OF_STREAM)
+        if egress_send_q is not None:
+            try:
+                egress_send_q.put_nowait(_END_OF_STREAM)
+            except queue.Full:
+                pass
     except grpc.RpcError:
-        # Stream died (network blip, gateway scale-down, etc.). The
+        # Gateway stream died (network blip, scale-down, etc.). The
         # outer loop handles reconnect.
         with stats_lock:
             stats.frames_failed += 1
@@ -567,11 +692,21 @@ def persistent_stream_session(
             send_q.put_nowait(_END_OF_STREAM)
         except queue.Full:
             pass
+        if egress_send_q is not None:
+            try:
+                egress_send_q.put_nowait(_END_OF_STREAM)
+            except queue.Full:
+                pass
     finally:
         try:
             channel.close()
         except Exception:  # noqa: BLE001
             pass
+        if egress_channel is not None:
+            try:
+                egress_channel.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +726,8 @@ def replay_station(
     stop_event: threading.Event,
     stats_lock: threading.Lock,
     soh_heartbeat_s: float = DEFAULT_SOH_HEARTBEAT_SECONDS,
+    audio_egress_target: str = "",
+    audio_egress_audience: str = "",
 ) -> None:
     """Persistent-stream replay loop for one simulated phone.
 
@@ -643,6 +780,8 @@ def replay_station(
             playback_phase_s=playback_phase_s,
             sequence_state=sequence_state,
             soh_heartbeat_s=soh_heartbeat_s,
+            audio_egress_target=audio_egress_target,
+            audio_egress_audience=audio_egress_audience,
         )
         # Brief backoff before reconnecting after a stream error.
         # If stop_event fired during the session, this returns
@@ -989,6 +1128,25 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
              "location stay current. 0 disables refresh (handshake only "
              "at connect). Default 60.",
     )
+    # --- Audio-egress tap (test-only). When --audio-egress-target is
+    # set, each persistent stream opens a SECOND gRPC stream to a
+    # receiver in drone-audio-sensor that drops every frame and only
+    # counts wire bytes. The gateway path is unaffected: if the egress
+    # leg gets wedged we drop frames on that leg only, never on the
+    # gateway leg.
+    p.add_argument(
+        "--audio-egress-target",
+        default="",
+        help="gRPC host:port of the audio_receiver in drone-audio-sensor. "
+             "Empty disables the tap (no second stream is opened). "
+             "Example: audio-receiver-xxx.us-west2.run.app:443",
+    )
+    p.add_argument(
+        "--audio-egress-audience",
+        default="",
+        help="Audience expected by the audio_receiver's ID-token check. "
+             "Defaults to https://<host> derived from --audio-egress-target.",
+    )
     return p.parse_args(argv)
 
 
@@ -1084,12 +1242,27 @@ def main(argv: list[str]) -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     threads: list[threading.Thread] = []
+    # Default audience for the audio-egress tap = https://<host>.
+    audio_egress_target = args.audio_egress_target.strip()
+    audio_egress_audience = args.audio_egress_audience.strip()
+    if audio_egress_target and not audio_egress_audience:
+        audio_egress_audience = "https://" + audio_egress_target.split(":", 1)[0]
+    if audio_egress_target:
+        print(
+            f"Audio egress tap enabled: target={audio_egress_target} "
+            f"audience={audio_egress_audience}"
+        )
+
     for stats in stations.values():
         t = threading.Thread(
             target=replay_station,
             args=(stats.config, stats, target, use_tls, clock, stop_event,
                   stats_lock),
-            kwargs={"soh_heartbeat_s": args.soh_heartbeat_seconds},
+            kwargs={
+                "soh_heartbeat_s": args.soh_heartbeat_seconds,
+                "audio_egress_target": audio_egress_target,
+                "audio_egress_audience": audio_egress_audience,
+            },
             name=f"replay-{stats.config.device_id}",
             daemon=True,
         )

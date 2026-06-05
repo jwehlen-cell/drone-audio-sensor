@@ -1,0 +1,75 @@
+# Cloud Build config for the cross-project AUDIO egress receiver.
+substitutions:
+  _SERVICE:  audio-receiver
+  _REGION:   us-west2
+  _REPO:     us-west2-docker.pkg.dev/drone-audio-sensor/drone-sensor-images
+  _TAG:      latest
+  _DEPLOY:   "false"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: protoc
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install --quiet grpcio-tools 'protobuf>=4.25,<6.0.0'
+        python -m grpc_tools.protoc \
+          -Iproto \
+          --python_out=backend/audio_receiver/src \
+          --grpc_python_out=backend/audio_receiver/src \
+          proto/drone_audio.proto proto/audio_egress_stats.proto
+        ls -l backend/audio_receiver/src/
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/audio_receiver/Dockerfile
+      - -t
+      - ${_REPO}/audio-receiver:${_TAG}
+      - -t
+      - ${_REPO}/audio-receiver:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REPO}/audio-receiver
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "_DEPLOY=${_DEPLOY}; skipping Cloud Run deploy."
+          exit 0
+        fi
+        # --use-http2 + memory bump: audio frames carry 50-300 KB
+        # FLAC payloads; default 512 MiB instance leaves room for
+        # heavy concurrency without per-instance OOM.
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REPO}/audio-receiver:${_TAG} \
+          --region=${_REGION} \
+          --use-http2 \
+          --allow-unauthenticated=false \
+          --memory=1Gi \
+          --cpu=2 \
+          --min-instances=0 \
+          --max-instances=20 \
+          --concurrency=200 \
+          --quiet
+
+images:
+  - ${_REPO}/audio-receiver:${_TAG}
+  - ${_REPO}/audio-receiver:latest
+
+timeout: 1200s
