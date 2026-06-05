@@ -10,7 +10,7 @@ exec > >(tee -a "$LOG") 2>&1
 echo "=== $(date -u) startup-script begin ==="
 
 META=http://metadata.google.internal/computeMetadata/v1/instance/attributes
-hdr=(-sH "Metadata-Flavor: Google")
+hdr=(-fsH "Metadata-Flavor: Google")
 GATEWAY_URL=$(curl "${hdr[@]}" "$META/GATEWAY_URL")
 GCP_PROJECT=$(curl "${hdr[@]}" "$META/GCP_PROJECT")
 REPO_URL=$(curl "${hdr[@]}" "$META/REPO_URL")
