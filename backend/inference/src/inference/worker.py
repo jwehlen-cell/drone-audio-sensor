@@ -150,6 +150,7 @@ class InferenceWorker:
             drone_score=score.drone_score,
             auxiliary_score=score.auxiliary_score,
             frame_seconds=frame_seconds,
+            confounder_score=score.confounder_score,
         )
         self._frames_processed += 1
         self._last_frame_at = time.monotonic()

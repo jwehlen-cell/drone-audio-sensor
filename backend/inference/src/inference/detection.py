@@ -90,6 +90,7 @@ class DetectionState:
         drone_score: float,
         auxiliary_score: float,
         frame_seconds: float,
+        confounder_score: float = 0.0,
     ) -> list[dict]:
         key = self._scores_key(device_id)
         entry = json.dumps(
@@ -103,6 +104,9 @@ class DetectionState:
                 # in the window — that's how a wide-cadence station's
                 # single positive frame can still satisfy the gate.
                 "frame_s": frame_seconds,
+                # Max AudioSet confounder-class score for this frame; evaluate()
+                # drops frames over the veto threshold (frog/insect/vehicle/train).
+                "conf": confounder_score,
             }
         )
         async with self._client.pipeline(transaction=True) as pipe:
@@ -150,11 +154,18 @@ def evaluate(buffer: list[dict]) -> tuple[bool, float, float, int]:
     over_frames = sum(1 for s in scores if s >= settings.detection_threshold)
     avg = sum(scores) / len(scores)
     peak = max(scores)
-    seconds_over = sum(
-        float(b.get("frame_s") or 0.0)
-        for b in buffer
-        if float(b["drone"]) >= settings.detection_threshold
-    )
+
+    def _counts(b: dict) -> bool:
+        """A frame contributes to the gate iff it's over threshold AND not
+        vetoed by a dominant AudioSet confounder (frog/insect/vehicle/train)."""
+        if float(b["drone"]) < settings.detection_threshold:
+            return False
+        if (settings.confounder_veto_enabled
+                and float(b.get("conf") or 0.0) >= settings.confounder_veto_threshold):
+            return False
+        return True
+
+    seconds_over = sum(float(b.get("frame_s") or 0.0) for b in buffer if _counts(b))
     trigger = seconds_over >= settings.min_seconds_over_threshold
     return trigger, avg, peak, over_frames
 

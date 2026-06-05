@@ -72,6 +72,33 @@ class Settings(BaseSettings):
         "Propeller, airscrew",
     )
 
+    # AudioSet confounder veto. YAMNet emits per-frame AudioSet scores (read on a
+    # peak-normalized pass — the field audio is ~-63 dB, so the raw pass collapses
+    # to "Silence"); when a confounder class below dominates (>= threshold), drop
+    # that frame's contribution to the detection gate. It can only suppress an
+    # already-firing frame, never create one.
+    #
+    # IMPORTANT (verified 2026-06): the class list is restricted to confounders a
+    # DRONE does NOT trigger — biophony (frog/insect/cricket) and rail. It must
+    # NOT include the engine/vehicle family: at field SNR, YAMNet scores REAL
+    # drones (USAFA 450/Hunter) as "Vehicle" 0.38-0.53, so vetoing "Vehicle"
+    # suppresses genuine drones. That also means this veto CANNOT catch SH010's
+    # dominant residual (a distant road/vehicle rumble YAMNet calls "Vehicle",
+    # indistinguishable from a drone acoustically) — that confounder needs the
+    # temporal-persistence / multi-sensor gate, not an acoustic veto.
+    confounder_veto_enabled: bool = True
+    confounder_veto_threshold: float = 0.3
+    confounder_class_names: tuple[str, ...] = (
+        "Frog",
+        "Croak",
+        "Insect",
+        "Cricket",
+        "Train",
+        "Railroad car, train wagon",
+        "Rail transport",
+        "Train horn",
+    )
+
     health_host: str = "0.0.0.0"
     health_port: int = 8080
 

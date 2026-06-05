@@ -21,6 +21,10 @@ class FrameScore:
     subtype_label: str = ""
     subtype_confidence: float = 0.0
     subtype_probs: dict[str, float] = field(default_factory=dict)
+    # Max AudioSet score over the confounder classes + which class — drives the
+    # confounder veto (frog/insect/vehicle/train). 0.0 when none configured.
+    confounder_score: float = 0.0
+    confounder_class: str = ""
 
 
 # Operational category thresholds. The trigger matches
@@ -102,6 +106,7 @@ class YAMNetModel:
         self._subtype_labels: list[str] = []
         self._class_names: list[str] = []
         self._auxiliary_indices: list[int] = []
+        self._confounder_indices: list[int] = []
 
     def load(self) -> None:
         if (
@@ -118,6 +123,7 @@ class YAMNetModel:
         self._yamnet = hub.load(settings.model_handle)
         self._class_names = self._load_class_names()
         self._auxiliary_indices = self._indices_for(settings.auxiliary_class_names)
+        self._confounder_indices = self._indices_for(settings.confounder_class_names)
 
         head_path = Path(settings.dense_classifier_path)
         if not head_path.is_file():
@@ -205,12 +211,31 @@ class YAMNetModel:
         )
         class_scores = {
             self._class_names[i]: float(per_class_mean[i])
-            for i in self._auxiliary_indices
+            for i in self._auxiliary_indices + self._confounder_indices
         }
+        # Confounder veto scores: the Shaw field audio is extremely low-amplitude
+        # (peak ~5e-4), so YAMNet's AudioSet head collapses to "Silence" on the
+        # raw waveform and can't name the confounder. A peak-normalized second
+        # pass recovers it (e.g. SH010's distant road rumble -> Vehicle ~0.6).
+        # This pass is veto-only; the binary/subtype heads stay on the
+        # un-normalized embeddings they were trained on. It can only suppress an
+        # already-firing frame, never create a detection.
+        confounder_score = 0.0
+        confounder_class = ""
+        if self._confounder_indices and settings.confounder_veto_enabled:
+            peak = float(np.abs(waveform).max())
+            norm = (waveform / peak * 0.95).astype(np.float32) if peak > 1e-6 else waveform
+            norm_scores, _e, _s = self._yamnet(norm)
+            norm_mean = norm_scores.numpy().mean(axis=0)
+            ci = int(max(self._confounder_indices, key=lambda i: norm_mean[i]))
+            confounder_score = float(norm_mean[ci])
+            confounder_class = self._class_names[ci]
         return FrameScore(
             drone_score=drone_prob,
             auxiliary_score=aux_score,
             class_scores=class_scores,
+            confounder_score=confounder_score,
+            confounder_class=confounder_class,
             subtype_label=subtype_label,
             subtype_confidence=subtype_confidence,
             subtype_probs=subtype_probs,
