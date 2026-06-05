@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import queue
 import random
 import signal
 import statistics
@@ -329,111 +330,257 @@ class PlaybackClock:
 # Streaming
 # ---------------------------------------------------------------------------
 
-def stream_one_frame(
+def _build_handshake_msg(
+    config: StationConfig,
+    sample_rate_hz: int,
+    battery_percent: int,
+    network_type_enum: int,
+):
+    """Build the ConnectHandshake message that opens a persistent stream
+    (or, for the legacy per-frame mode, prefixes every audio frame)."""
+    import drone_audio_pb2 as pb  # type: ignore
+
+    _name = config.description or config.device_id
+    site_tag = f"{_name} ({config.cadence_s:02d}s/{config.codec})"
+    return pb.ClientStreamMessage(
+        handshake=pb.ConnectHandshake(
+            device_id=config.device_id,
+            connect_timestamp_ms=now_ms(),
+            app_version="replay-fleet-1.0",
+            device_model="replay-fleet",
+            os_version="harness",
+            assigned_site_label=site_tag,
+            # Lat/lon goes on every handshake so the gateway persists
+            # `current_location` and the admin map reflects the
+            # configured site layout, not stale fixtures.
+            location=pb.DeviceLocation(
+                latitude=config.latitude,
+                longitude=config.longitude,
+                horizontal_accuracy_meters=5.0,
+                location_timestamp_ms=now_ms(),
+                provider="simulator",
+                status=pb.LOCATION_STATUS_CURRENT,
+            ),
+            auth_token_id="simulator",
+            sample_rate_hz=sample_rate_hz,
+            frame_duration_ms=config.cadence_s * 1000,
+            health=pb.DeviceHealth(
+                battery_percent=battery_percent,
+                charging=False,
+                network_type=network_type_enum,
+                thermal_state=pb.THERMAL_STATE_NOMINAL,
+                app_version="replay-fleet-1.0",
+                microphone_active=True,
+            ),
+        )
+    )
+
+
+def _build_audio_frame_msg(
+    config: StationConfig,
+    payload: bytes,
+    sample_rate_hz: int,
+    sequence_number: int,
+):
+    import drone_audio_pb2 as pb  # type: ignore
+
+    return pb.ClientStreamMessage(
+        audio_frame=pb.AudioFrame(
+            device_id=config.device_id,
+            capture_timestamp_ms=now_ms(),
+            sequence_number=sequence_number,
+            sample_rate_hz=sample_rate_hz,
+            pcm16_mono=payload,
+            codec=config.codec,
+        )
+    )
+
+
+def _open_channel(gateway_target: str, use_tls: bool):
+    import grpc  # type: ignore
+
+    if use_tls:
+        return grpc.secure_channel(
+            gateway_target, grpc.ssl_channel_credentials()
+        )
+    return grpc.insecure_channel(gateway_target)
+
+
+# Sentinel pushed into the queue to tell the request_iter generator to
+# finish (and the bidirectional stream to half-close cleanly).
+_END_OF_STREAM = object()
+
+
+def persistent_stream_session(
     *,
     gateway_target: str,
     use_tls: bool,
     config: StationConfig,
-    samples_int16: np.ndarray,
-    sample_rate_hz: int,
-    sequence_number: int,
-    battery_percent: int,
+    clock: PlaybackClock,
+    stop_event: threading.Event,
+    stats: StationStats,
+    stats_lock: threading.Lock,
+    battery_initial: int,
+    battery_started_at: float,
     network_type_enum: int,
-) -> tuple[bool, int, int]:
-    """Open a fresh gRPC stream, push handshake + one audio frame, close.
-    Returns ``(ok, payload_bytes, encode_us)``.
+    playback_phase_s: float,
+    sequence_state: list[int],
+    soh_heartbeat_s: float,
+) -> None:
+    """Drive one long-lived bidirectional StreamAudio call.
 
-    Per-frame streams (vs one long-lived stream per station) keep the
-    gateway's per-stream state simple and match the existing simulator's
-    cycle pattern. At max cadence (1 Hz) the overhead is modest."""
-    import grpc
-    import drone_audio_pb2 as pb
-    import drone_audio_pb2_grpc as pb_grpc
+    Opens a single gRPC channel + stream, sends the handshake once at
+    start, then pushes one audio frame per cadence tick into a bounded
+    queue that the request iterator drains. Periodically re-sends the
+    handshake to refresh battery + location.
 
-    payload, encode_us = encode_frame(samples_int16, sample_rate_hz, config.codec)
+    Returns when (a) ``stop_event`` is set or (b) the stream errors --
+    the outer ``replay_station`` reconnects in case (b).
 
-    if use_tls:
-        channel = grpc.secure_channel(
-            gateway_target, grpc.ssl_channel_credentials()
-        )
-    else:
-        channel = grpc.insecure_channel(gateway_target)
+    This matches the production phone-app pattern (open once, stream
+    continuously). The legacy `per-frame stream` mode opened+closed a
+    fresh gRPC channel for every audio frame, paying TCP+TLS+HTTP2+gRPC
+    handshake cost once per frame -- realistic for testing per-stream
+    overhead in isolation but a wildly inflated cost at high cadence
+    vs what real phones do.
+    """
+    import grpc  # type: ignore
+    import drone_audio_pb2_grpc as pb_grpc  # type: ignore
+
+    # Bounded queue so backpressure surfaces: if the stream wedges and
+    # the request iterator stops draining, queue.put eventually blocks
+    # past the cadence timeout and we break out to reconnect. Capacity
+    # 4 keeps the producer ~one cadence ahead at most.
+    send_q: queue.Queue = queue.Queue(maxsize=4)
+
+    def request_iter():
+        # Drains messages produced by the cadence loop. Returning here
+        # makes gRPC half-close the request side; the response side
+        # ends naturally when the gateway closes.
+        while True:
+            item = send_q.get()
+            if item is _END_OF_STREAM:
+                return
+            yield item
+
+    channel = _open_channel(gateway_target, use_tls)
+    encode_us_acc = 0
+    last_handshake_at = time.monotonic()
+
+    def _current_battery() -> int:
+        drain = int((time.monotonic() - battery_started_at) / 60.0)
+        return max(5, battery_initial - drain)
+
+    # Seed the queue with the initial handshake BEFORE we hand the
+    # generator to gRPC, so the gateway sees the handshake first.
+    send_q.put(_build_handshake_msg(
+        config, clock.sr, _current_battery(), network_type_enum,
+    ))
 
     try:
         stub = pb_grpc.DroneAudioStreamStub(channel)
+        # `timeout=None` for an indefinitely long stream; the outer
+        # loop drives termination via stop_event + _END_OF_STREAM.
+        response_call = stub.StreamAudio(request_iter(), timeout=None)
 
-        # The Site column gets a sentence describing where this
-        # simulated station lives; the Type column splits off the
-        # parenthesized cadence/codec suffix at render time. Example:
-        #   "SIMULATED – Patrick SFB coast, south perimeter (28.215°N) (30s/wav)"
-        # → Site: "SIMULATED – Patrick SFB coast, south perimeter (28.215°N)"
-        # → Type: "30s/wav"
-        # Falls back to the device id when no description was set.
-        _name = config.description or config.device_id
-        site_tag = f"{_name} ({config.cadence_s:02d}s/{config.codec})"
+        # Drain server responses on a side thread so HTTP/2 flow
+        # control stays healthy and the gateway can send commands
+        # without blocking on us.
+        def _drain_responses():
+            try:
+                for _resp in response_call:
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
 
-        def request_iter():
-            yield pb.ClientStreamMessage(
-                handshake=pb.ConnectHandshake(
-                    device_id=config.device_id,
-                    connect_timestamp_ms=now_ms(),
-                    app_version="replay-fleet-1.0",
-                    device_model="replay-fleet",
-                    os_version="harness",
-                    assigned_site_label=site_tag,
-                    # Lat/lon goes on every handshake so the gateway
-                    # persists `current_location` and the admin map
-                    # reflects the Patrick SFB coast layout, not stale
-                    # Palm Beach test fixtures.
-                    location=pb.DeviceLocation(
-                        latitude=config.latitude,
-                        longitude=config.longitude,
-                        horizontal_accuracy_meters=5.0,
-                        location_timestamp_ms=now_ms(),
-                        provider="simulator",
-                        status=pb.LOCATION_STATUS_CURRENT,
-                    ),
-                    auth_token_id="simulator",
-                    sample_rate_hz=sample_rate_hz,
-                    frame_duration_ms=config.cadence_s * 1000,
-                    # State-of-health: each station picks battery +
-                    # network_type once at startup and the harness
-                    # decays battery slowly, so the admin dashboard
-                    # shows realistic per-device telemetry instead of
-                    # blank fields.
-                    health=pb.DeviceHealth(
-                        battery_percent=battery_percent,
-                        charging=False,
-                        network_type=network_type_enum,
-                        thermal_state=pb.THERMAL_STATE_NOMINAL,
-                        app_version="replay-fleet-1.0",
-                        microphone_active=True,
-                    ),
-                )
+        drainer = threading.Thread(
+            target=_drain_responses,
+            name=f"drain-{config.device_id}",
+            daemon=True,
+        )
+        drainer.start()
+
+        cycle_start = time.monotonic()
+        while not stop_event.is_set():
+            sequence_state[0] += 1
+            samples = clock.slice(
+                float(config.cadence_s),
+                wall_ts=time.time() + playback_phase_s,
             )
-            yield pb.ClientStreamMessage(
-                audio_frame=pb.AudioFrame(
-                    device_id=config.device_id,
-                    capture_timestamp_ms=now_ms(),
-                    sequence_number=sequence_number,
-                    sample_rate_hz=sample_rate_hz,
-                    pcm16_mono=payload,
-                    codec=config.codec,
-                )
+            payload, encode_us = encode_frame(
+                samples, clock.sr, config.codec,
+            )
+            encode_us_acc = encode_us
+
+            frame_msg = _build_audio_frame_msg(
+                config, payload, clock.sr, sequence_state[0],
             )
 
-        for _resp in stub.StreamAudio(request_iter(), timeout=30):
+            # Backpressure: if the stream's wedged and the queue's
+            # full for longer than a cadence cycle, give up and let
+            # the outer loop reconnect.
+            try:
+                send_q.put(frame_msg, timeout=float(config.cadence_s))
+            except queue.Full:
+                with stats_lock:
+                    stats.frames_failed += 1
+                break
+
+            # Optimistic per-frame stats: counted as sent when the
+            # frame leaves our process via the queue. The persistent
+            # stream model doesn't give us a per-frame ack, so this
+            # is the closest analog to the legacy per-frame "ok".
+            with stats_lock:
+                stats.frames_sent += 1
+                stats.bytes_sent += len(payload)
+                stats.encode_time_us.append(encode_us_acc)
+
+            # Periodic handshake refresh so the dashboard's battery /
+            # site label / location stay current as the session ages.
+            # Disabled when soh_heartbeat_s <= 0.
+            if soh_heartbeat_s > 0 and (
+                time.monotonic() - last_handshake_at >= soh_heartbeat_s
+            ):
+                try:
+                    send_q.put(_build_handshake_msg(
+                        config, clock.sr,
+                        _current_battery(), network_type_enum,
+                    ), timeout=1.0)
+                    last_handshake_at = time.monotonic()
+                except queue.Full:
+                    pass  # next cycle will retry
+
+            elapsed = time.monotonic() - cycle_start
+            remaining = config.cadence_s - elapsed
+            if remaining > 0:
+                stop_event.wait(timeout=remaining)
+            cycle_start = time.monotonic()
+
+        # Clean shutdown: half-close so gRPC flushes anything queued.
+        send_q.put(_END_OF_STREAM)
+    except grpc.RpcError:
+        # Stream died (network blip, gateway scale-down, etc.). The
+        # outer loop handles reconnect.
+        with stats_lock:
+            stats.frames_failed += 1
+        try:
+            send_q.put_nowait(_END_OF_STREAM)
+        except queue.Full:
             pass
-        return True, len(payload), encode_us
-    except Exception:
-        return False, len(payload), encode_us
     finally:
-        channel.close()
+        try:
+            channel.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---------------------------------------------------------------------------
 # Per-station replay thread
 # ---------------------------------------------------------------------------
+
+RECONNECT_BACKOFF_SECONDS = 2.0
+DEFAULT_SOH_HEARTBEAT_SECONDS = 60.0
+
 
 def replay_station(
     config: StationConfig,
@@ -443,75 +590,65 @@ def replay_station(
     clock: PlaybackClock,
     stop_event: threading.Event,
     stats_lock: threading.Lock,
+    soh_heartbeat_s: float = DEFAULT_SOH_HEARTBEAT_SECONDS,
 ) -> None:
-    """Random phase offset, then send one frame per cadence_s until
-    stop_event is set."""
+    """Persistent-stream replay loop for one simulated phone.
+
+    Matches the production phone-app pattern: open a single
+    bidirectional gRPC stream and keep it alive for the lifetime of
+    the simulated session. The handshake is sent once at connect; an
+    audio frame is pushed every ``config.cadence_s``. If the stream
+    breaks (network blip, gateway scale-down), this loop reconnects
+    with a brief backoff and the SOH state is preserved across
+    reconnects.
+
+    ``soh_heartbeat_s`` controls how often a refreshed handshake is
+    sent within an active stream so the dashboard's battery + site
+    label + location stay current; set to 0 to disable.
+    """
     offset = random.uniform(0.0, config.cadence_s)
     stop_event.wait(timeout=offset)
     if stop_event.is_set():
         return
 
-    # Sticky per-station SOH state. The user wants the admin dashboard
-    # to show realistic battery + network instead of blank fields:
-    #   battery_percent: random 45–95 at startup, decays 1 % every
-    #                    ~60 s of wall-clock so the dashboard isn't
-    #                    static (clamped at 5 % so a dying phone
-    #                    doesn't flat-line to 0).
-    #   network_type:    50/50 wifi vs cellular LTE — kept sticky so
-    #                    a station doesn't appear to roam every cycle.
-    #                    Pb proto enums: 1=WIFI, 2=CELLULAR_LTE.
-    battery_percent = random.randint(45, 95)
+    # Sticky per-station SOH state -- chosen once, kept across
+    # reconnects so the admin dashboard's battery / network don't
+    # flap when a stream restarts.
+    battery_initial = random.randint(45, 95)
     network_type_enum = random.choice([1, 2])  # WIFI / CELLULAR_LTE
     battery_started_at = time.monotonic()
 
-    # Per-station playback phase across the full clip duration. All
-    # stations share the same PlaybackClock, so without this offset
-    # they'd all hit the embedded flyby at the same wall-clock instant
-    # (every 35 min in the current fixture) and the dashboard would see
-    # one synchronized burst of 10 detections per loop. A random shift
-    # in [0, clip_duration) staggers each station's view of the clip so
-    # the detection cadence per device is the requested 30-45 min, but
-    # the detections themselves are spread across that window.
+    # Per-station playback phase across the full clip duration so
+    # stations don't all hit the same embedded flyby at the same
+    # wall-clock instant (which would create one synchronized burst
+    # of detections per loop).
     playback_phase_s = random.uniform(0.0, clock.duration_s)
 
-    sequence = 0
+    # Sequence number persists across reconnects so the gateway sees
+    # monotonically increasing seq even after a session blip.
+    sequence_state = [0]
+
     while not stop_event.is_set():
-        cycle_start = time.monotonic()
-        sequence += 1
-        # Slow battery drain: -1 % per 60 s of wall-clock, clamped at 5 %.
-        drain = int((time.monotonic() - battery_started_at) / 60.0)
-        current_battery = max(5, battery_percent - drain)
-        # Chunk size == cadence: a 30 s-cadence station sends 30 s of
-        # audio every 30 s; a 1 s-cadence station sends 1 s every 1 s.
-        # The clip auto-wraps if a chunk crosses the loop boundary.
-        # Per-station phase shifts the playback position so stations
-        # see different parts of the clip at the same wall-clock time.
-        samples = clock.slice(
-            float(config.cadence_s),
-            wall_ts=time.time() + playback_phase_s,
-        )
-        ok, n_bytes, encode_us = stream_one_frame(
+        persistent_stream_session(
             gateway_target=gateway_target,
             use_tls=use_tls,
             config=config,
-            samples_int16=samples,
-            sample_rate_hz=clock.sr,
-            sequence_number=sequence,
-            battery_percent=current_battery,
+            clock=clock,
+            stop_event=stop_event,
+            stats=stats,
+            stats_lock=stats_lock,
+            battery_initial=battery_initial,
+            battery_started_at=battery_started_at,
             network_type_enum=network_type_enum,
+            playback_phase_s=playback_phase_s,
+            sequence_state=sequence_state,
+            soh_heartbeat_s=soh_heartbeat_s,
         )
-        with stats_lock:
-            if ok:
-                stats.frames_sent += 1
-            else:
-                stats.frames_failed += 1
-            stats.bytes_sent += n_bytes
-            stats.encode_time_us.append(encode_us)
-
-        elapsed = time.monotonic() - cycle_start
-        remaining = config.cadence_s - elapsed
-        if remaining > 0:
-            stop_event.wait(timeout=remaining)
+        # Brief backoff before reconnecting after a stream error.
+        # If stop_event fired during the session, this returns
+        # immediately and the outer while breaks.
+        if not stop_event.is_set():
+            stop_event.wait(timeout=RECONNECT_BACKOFF_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +980,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "(wav|flac|pcm16; default flac).")
     p.add_argument("--report-interval", type=float, default=300.0,
                    help="Rolling summary every N seconds (default 300).")
+    p.add_argument(
+        "--soh-heartbeat-seconds",
+        type=float,
+        default=DEFAULT_SOH_HEARTBEAT_SECONDS,
+        help="On each persistent stream, re-send the handshake every N "
+             "seconds so the admin dashboard's battery + site label + "
+             "location stay current. 0 disables refresh (handshake only "
+             "at connect). Default 60.",
+    )
     return p.parse_args(argv)
 
 
@@ -943,6 +1089,7 @@ def main(argv: list[str]) -> int:
             target=replay_station,
             args=(stats.config, stats, target, use_tls, clock, stop_event,
                   stats_lock),
+            kwargs={"soh_heartbeat_s": args.soh_heartbeat_seconds},
             name=f"replay-{stats.config.device_id}",
             daemon=True,
         )
