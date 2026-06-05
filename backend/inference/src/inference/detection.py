@@ -62,6 +62,11 @@ class DetectionEvent:
     # above the trigger threshold).
     category: str = "known_drone"
     category_display: str = ""
+    # Chronic-sensor mute: True when this sensor is firing chronically (a
+    # stationary nuisance source). chronic_suppressed events are written to
+    # Firestore for audit but NOT published to the operator/TAK channel.
+    chronic_suppressed: bool = False
+    chronic_recent_count: int = 0
 
 
 class DetectionState:
@@ -80,6 +85,33 @@ class DetectionState:
     @staticmethod
     def _suppression_key(device_id: str) -> str:
         return f"alert_suppression:{device_id}"
+
+    @staticmethod
+    def _fires_key(device_id: str) -> str:
+        return f"fires:{device_id}"
+
+    async def record_fire_and_chronic(self, device_id: str, timestamp_ms: int) -> tuple[bool, int]:
+        """Record a fired detection and report whether the sensor is chronic.
+
+        Maintains a Redis sorted set of recent fire timestamps (trimmed to
+        chronic_window_seconds). A sensor is chronic when it has accumulated
+        >= chronic_alert_threshold fires in that trailing window -- the signature
+        of a stationary nuisance source rather than a transient drone. Returns
+        (is_chronic, count_in_window). Counts every fire (muted or not) so muting
+        a chronic sensor doesn't lower its own count and cause oscillation.
+        """
+        if not settings.chronic_mute_enabled:
+            return False, 0
+        key = self._fires_key(device_id)
+        window_ms = settings.chronic_window_seconds * 1000
+        cutoff = timestamp_ms - window_ms
+        async with self._client.pipeline(transaction=True) as pipe:
+            await pipe.zadd(key, {str(timestamp_ms): timestamp_ms})
+            await pipe.zremrangebyscore(key, 0, cutoff)
+            await pipe.zcard(key)
+            await pipe.expire(key, settings.chronic_window_seconds + settings.suppression_window_seconds)
+            _, _, count, _ = await pipe.execute()
+        return int(count) >= settings.chronic_alert_threshold, int(count)
 
     async def append_score(
         self,

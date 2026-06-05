@@ -68,6 +68,7 @@ class InferenceWorker:
         self._ready = False
         self._frames_processed = 0
         self._detections_emitted = 0
+        self._detections_chronic_muted = 0
         # Watchdog state. ``_last_frame_at`` is reset to ``time.monotonic()``
         # when the worker becomes ready and every time a frame is
         # processed. The watchdog loop wakes periodically and exits
@@ -171,9 +172,22 @@ class InferenceWorker:
             peak=peak,
             over=over,
         )
+        # Temporal gate (mechanism 1): a chronically-firing sensor is a
+        # stationary nuisance source. Mute its OPERATOR alert (still audited in
+        # Firestore via the publisher) but keep tracking it.
+        chronic, count = await self._detection_state.record_fire_and_chronic(
+            frame.device_id, frame.capture_timestamp_ms
+        )
+        event.chronic_suppressed = chronic
+        event.chronic_recent_count = count
         await self._detection_state.mark_suppressed(frame.device_id, event.detection_id)
         await self._publisher.publish(event)
-        self._detections_emitted += 1
+        if chronic:
+            self._detections_chronic_muted += 1
+            log.info("detection_chronic_muted", device_id=frame.device_id,
+                     recent_fires=count, detection_id=event.detection_id)
+        else:
+            self._detections_emitted += 1
 
     async def stop(self) -> None:
         log.info("worker_stopping", frames=self._frames_processed, detections=self._detections_emitted)

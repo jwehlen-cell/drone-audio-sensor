@@ -99,6 +99,27 @@ class Settings(BaseSettings):
         "Train horn",
     )
 
+    # Chronic-sensor mute (temporal gate). A sensor that fires
+    # >= chronic_alert_threshold times within chronic_window_seconds is behaving
+    # like a STATIONARY nuisance source (frog chorus / roadside / HVAC --
+    # persistent + single-sensor) rather than a transient drone, which acoustic
+    # detectors cannot reject because the rumble is drone-like. Its alerts are
+    # then SUPPRESSED from the operator/TAK channel but still written to Firestore
+    # (chronic_suppressed=True) for audit -- observable suppression, never a
+    # silent drop. A sensor un-mutes automatically once it drops below the
+    # threshold in the trailing window. Tuned on 8 h of Shaw alert stream: K=4 /
+    # 600 s cut the alert flood ~97%.
+    #
+    # This is mechanism 1 only (no geometry). The multi-sensor TRANSIT OVERRIDE
+    # (a real moving-track that should un-mute a chronic sensor for a genuine
+    # fly-through) is NOT implemented -- it needs sensor geometry + a controlled
+    # drone flight to validate. Until then a drone hovering at a chronic sensor is
+    # audited but not alerted; raise the threshold or set chronic_mute_enabled
+    # =False for a site where that recall risk is unacceptable.
+    chronic_mute_enabled: bool = True
+    chronic_window_seconds: int = 600
+    chronic_alert_threshold: int = 4
+
     health_host: str = "0.0.0.0"
     health_port: int = 8080
 

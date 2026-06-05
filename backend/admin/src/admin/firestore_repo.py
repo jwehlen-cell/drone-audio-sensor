@@ -186,6 +186,11 @@ class FirestoreRepo:
             published = int(data.get("published_at_ms") or 0)
             if published and published < cutoff_ms:
                 continue
+            # Chronic-sensor-muted detections are written to Firestore for audit
+            # but withheld from the operator/TAK channel; keep them out of the
+            # default dashboard view too (they're the stationary-nuisance flood).
+            if data.get("chronic_suppressed"):
+                continue
             row = _to_detection_row(snap.id, data)
             if site is not None and row.site != site:
                 continue

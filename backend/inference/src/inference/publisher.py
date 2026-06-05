@@ -68,8 +68,29 @@ class DetectionPublisher:
             },
             "device_location": location,
             "published_at_ms": now_ms(),
+            # Temporal gate: True when the sensor is firing chronically (stationary
+            # nuisance). Audited in Firestore but withheld from the operator/TAK
+            # Pub/Sub channel below.
+            "chronic_suppressed": event.chronic_suppressed,
+            "chronic_recent_count": event.chronic_recent_count,
         }
         payload = json.dumps(message).encode("utf-8")
+
+        # Observable suppression: a chronically-firing sensor's alert is written
+        # to Firestore (audit / dashboard can filter on chronic_suppressed) but
+        # NOT published to the operator/TAK topic. Nothing is silently dropped.
+        if event.chronic_suppressed:
+            log.info(
+                "detection_chronic_suppressed",
+                detection_id=event.detection_id,
+                device_id=event.device_id,
+                recent_fires=event.chronic_recent_count,
+            )
+            try:
+                await self._write_detection_doc(event, message, message_id="")
+            except Exception as e:  # noqa: BLE001
+                log.warning("detection_doc_write_failed", detection_id=event.detection_id, error=str(e))
+            return ""
 
         attributes = {
             "device_id": event.device_id,
