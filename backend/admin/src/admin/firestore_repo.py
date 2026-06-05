@@ -98,6 +98,18 @@ class DetectionRow:
     # existed; the template falls back to subtype_label in that case.
     category: str = ""
     category_display: str = ""
+    # Suppression-attempt labelling. Empty for real operator alerts;
+    # one of "chronic" | "cooldown" | "audioset_veto" for would-be
+    # detections audited to Firestore only. The /suppressed view
+    # filters on this; the main / view excludes everything non-empty.
+    suppression_reason: str = ""
+    # Count of frames in the buffer that the AudioSet veto removed
+    # from the gate accumulator. 0 on real detections that the veto
+    # never touched; >0 on real detections where veto fired on some
+    # frames but the gate still triggered; meaningful on
+    # suppression_reason="audioset_veto" rows where the veto is the
+    # reason the gate didn't trigger.
+    vetoed_frames: int = 0
 
 
 class FirestoreRepo:
@@ -186,12 +198,55 @@ class FirestoreRepo:
             published = int(data.get("published_at_ms") or 0)
             if published and published < cutoff_ms:
                 continue
-            # Chronic-sensor-muted detections are written to Firestore for audit
-            # but withheld from the operator/TAK channel; keep them out of the
-            # default dashboard view too (they're the stationary-nuisance flood).
-            if data.get("chronic_suppressed"):
+            # Suppression-attempt docs (chronic / cooldown / audioset_veto) are
+            # written to Firestore for audit but never published to the
+            # operator/TAK channel. Keep them out of the default detection
+            # view too -- they have their own /suppressed page. The legacy
+            # chronic_suppressed bool is also honored for old docs that
+            # predate the suppression_reason field.
+            if data.get("suppression_reason") or data.get("chronic_suppressed"):
                 continue
             row = _to_detection_row(snap.id, data)
+            if site is not None and row.site != site:
+                continue
+            rows.append(row)
+        return rows
+
+    async def list_suppressed_detections(
+        self, site: str | None = None, reason: str | None = None,
+    ) -> list[DetectionRow]:
+        """Detections that fired the gate but were suppressed before
+        reaching the operator/TAK channel. Drives the /suppressed
+        admin page so the analyst can see WHAT was killed and WHY."""
+        cutoff_ms = int(time.time() * 1000) - settings.recent_detections_window_seconds * 1000
+        # Pull the most recent N regardless of suppression status, then
+        # filter in Python -- avoids needing a composite index on
+        # suppression_reason + published_at_ms. Keep the limit higher
+        # than the main view because suppressed-attempt volume can be
+        # 10-100x detection volume during active veto / chronic periods.
+        query = (
+            self._detections.order_by(
+                "published_at_ms", direction=firestore.Query.DESCENDING
+            )
+            .limit(settings.recent_detections_limit * 3)
+        )
+        rows: list[DetectionRow] = []
+        async for snap in query.stream():
+            data = snap.to_dict() or {}
+            published = int(data.get("published_at_ms") or 0)
+            if published and published < cutoff_ms:
+                continue
+            sr = str(data.get("suppression_reason") or "")
+            # Backcompat: old docs only had chronic_suppressed bool.
+            if not sr and data.get("chronic_suppressed"):
+                sr = "chronic"
+            if not sr:
+                continue
+            if reason is not None and sr != reason:
+                continue
+            row = _to_detection_row(snap.id, data)
+            # Make sure the row carries the inferred reason for old docs.
+            row.suppression_reason = sr
             if site is not None and row.site != site:
                 continue
             rows.append(row)
@@ -303,6 +358,8 @@ def _to_detection_row(detection_id: str, data: dict[str, Any]) -> DetectionRow:
         if isinstance(subtype, dict) else 0.0,
         category=category_token,
         category_display=category_display,
+        suppression_reason=str(data.get("suppression_reason") or ""),
+        vetoed_frames=_int(data.get("vetoed_frames")) or 0,
     )
 
 

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Suppressed detections — {{ current_site or "all sites" }}{% endblock %}
+
+{% block content %}
+{% if refresh_seconds and refresh_seconds > 0 %}
+  <meta http-equiv="refresh" content="{{ refresh_seconds }}">
+{% endif %}
+
+<section class="panel">
+  <h2>Suppressed detections</h2>
+  <p class="muted">
+    Detections that fired the gate but were dropped before reaching the
+    operator / TAK channel. They live in the detect store for audit
+    only. Filter by reason; the chips show counts across all reasons
+    for the current site.
+  </p>
+
+  {# Reason filter chips. ?reason=... overrides; default = all. #}
+  {% set base_q = "?site=" ~ current_site if current_site else "?" %}
+  {% set join = "&" if "?" in base_q else "?" %}
+  <div class="filter-row">
+    <span class="muted">Reason:</span>
+    {% if reason_filter == "" %}
+      <span class="chip chip-active">all ({{ counts.total }})</span>
+    {% else %}
+      <a class="chip" href="{{ base_q }}">all ({{ counts.total }})</a>
+    {% endif %}
+    {% for r in ["audioset_veto", "cooldown", "chronic"] %}
+      {% if reason_filter == r %}
+        <span class="chip chip-active">{{ r }} ({{ counts[r] }})</span>
+      {% else %}
+        <a class="chip" href="{{ base_q }}{{ join }}reason={{ r }}">{{ r }} ({{ counts[r] }})</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if rows %}
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Device</th>
+        <th>Site</th>
+        <th>Reason</th>
+        <th class="num">Peak</th>
+        <th class="num">Avg</th>
+        <th class="num">Frames over</th>
+        <th class="num">Vetoed</th>
+        <th>Subtype</th>
+        <th>Detection ID</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="suppressed-row reason-{{ r.suppression_reason }}">
+        <td class="muted">
+          {% if r.published_at_ms %}
+            <span data-utc-ms="{{ r.published_at_ms }}">{{ r.published_at_ms }}</span>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td><code>{{ r.device_id }}</code></td>
+        <td class="muted">{{ r.site or "—" }}</td>
+        <td>
+          <span class="reason-pill reason-{{ r.suppression_reason }}">
+            {{ r.suppression_reason }}
+          </span>
+        </td>
+        <td class="num">{{ "%.3f"|format(r.peak_score) }}</td>
+        <td class="num muted">{{ "%.3f"|format(r.average_score) }}</td>
+        <td class="num muted">—</td>
+        <td class="num {% if r.vetoed_frames %}vetoed-pos{% endif %}">
+          {{ r.vetoed_frames }}
+        </td>
+        <td class="muted">
+          {{ r.category_display or r.subtype_label or "—" }}
+        </td>
+        <td class="muted small"><code>{{ r.detection_id[:12] }}…</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">
+    No suppressed detections in the current window for
+    <strong>{{ current_site or "all sites" }}</strong>{% if reason_filter %}
+    with reason <code>{{ reason_filter }}</code>{% endif %}.
+  </p>
+  {% endif %}
+</section>
+
+<style>
+  .filter-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 12px 0 16px;
+  }
+  .reason-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .reason-audioset_veto { background: #5b3a1a; color: #ffd180; }
+  .reason-cooldown      { background: #1a3d5b; color: #80d4ff; }
+  .reason-chronic       { background: #3a1a5b; color: #d480ff; }
+  tr.reason-audioset_veto { background: #1a1308; }
+  tr.reason-cooldown      { background: #08131a; }
+  tr.reason-chronic       { background: #13081a; }
+  .vetoed-pos { color: #ffd180; font-weight: 600; }
+  .empty {
+    text-align: center; padding: 40px; color: #8b949e;
+  }
+  .small { font-size: 11px; }
+</style>
+
+<script>
+  // Render epoch-ms timestamps as the operator's local time.
+  document.querySelectorAll('[data-utc-ms]').forEach(el => {
+    const ms = parseInt(el.dataset.utcMs, 10);
+    if (!ms) return;
+    const d = new Date(ms);
+    el.textContent = d.toLocaleTimeString([], {
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }) + ' ' + d.toLocaleDateString();
+  });
+</script>
+{% endblock %}

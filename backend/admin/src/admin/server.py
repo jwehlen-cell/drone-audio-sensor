@@ -240,6 +240,71 @@ def build_app() -> FastAPI:
             },
         )
 
+    @app.get("/suppressed", response_class=HTMLResponse)
+    async def suppressed_page(
+        request: Request,
+        user: str = Depends(_resolve_user),
+        fs: FirestoreRepo = Depends(fs_dep),
+    ) -> Any:
+        """Detections that fired the gate but were suppressed before
+        going to TAK. Lets the analyst see WHAT was killed and WHY,
+        grouped by suppression_reason (chronic / cooldown /
+        audioset_veto). Same site-chip pattern as the main view."""
+        available_sites = await fs.list_sites()
+        site_param = (request.query_params.get("site") or "").strip()
+        if site_param and site_param in available_sites:
+            current_site = site_param
+        else:
+            current_site = available_sites[0] if available_sites else ""
+
+        reason_param = (request.query_params.get("reason") or "").strip().lower()
+        reason_filter = reason_param if reason_param in (
+            "chronic", "cooldown", "audioset_veto",
+        ) else None
+
+        rows = await fs.list_suppressed_detections(
+            site=current_site or None, reason=reason_filter,
+        )
+        # Count per reason for the filter chips at the top.
+        counts = {"chronic": 0, "cooldown": 0, "audioset_veto": 0, "total": 0}
+        # Pull a no-filter sample to populate the chip counts, but only
+        # if we're currently filtering -- otherwise the rows already
+        # give us the counts.
+        source = rows if reason_filter is None else (
+            await fs.list_suppressed_detections(site=current_site or None)
+        )
+        for r in source:
+            counts["total"] += 1
+            if r.suppression_reason in counts:
+                counts[r.suppression_reason] += 1
+
+        refresh_param = request.query_params.get("refresh")
+        if refresh_param is not None:
+            try:
+                refresh_seconds = 0 if refresh_param.lower() in {
+                    "off", "0", "false", "no",
+                } else max(0, int(refresh_param))
+            except ValueError:
+                refresh_seconds = settings.status_refresh_seconds
+        else:
+            refresh_seconds = settings.status_refresh_seconds
+
+        return TEMPLATES.TemplateResponse(
+            "suppressed.html",
+            {
+                "request": request,
+                "user": user,
+                "rows": rows,
+                "counts": counts,
+                "reason_filter": reason_filter or "",
+                "available_sites": available_sites,
+                "current_site": current_site,
+                "refresh_seconds": refresh_seconds,
+                "refresh_options": [5, 10, 30, 60],
+                "rendered_at_ms": int(time.time() * 1000),
+            },
+        )
+
     @app.get("/registered", response_class=HTMLResponse)
     async def registered_page(
         request: Request,
